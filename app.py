@@ -105,19 +105,18 @@ st.markdown("---")
 # CARGAR DATOS - Intenta desde URL primero, luego local
 if not st.session_state.cargado:
     try:
-        # Intentar cargar desde GitHub (para Streamlit Cloud)
-        url = "https://docs.google.com/spreadsheets/d/1PXszau9XOTummO8t66XRCVxvGL3KhYN6/edit?usp=sharing&ouid=107015331609668097589&rtpof=true&sd=true"
-        urllib.request.urlretrieve(url, "temp.xlsx")
-        df = pd.read_excel("temp.xlsx")
-        st.success("✅ Datos cargados desde GitHub")
-    except:
-        # Si falla, intentar archivo local
-        try:
-            df = pd.read_excel("tus_preguntas.xlsx")
-            st.success("✅ Datos cargados localmente")
-        except:
-            st.error("❌ No se encontró el archivo Excel")
-            st.stop()
+        import requests
+file_id = "https://docs.google.com/spreadsheets/d/1PXszau9XOTummO8t66XRCVxvGL3KhYN6/edit?usp=sharing&ouid=107015331609668097589&rtpof=true&sd=true"
+url = f"https://drive.google.com/uc?id={file_id}"
+response = requests.get(url,timeout=30)
+response.raise_for_estatus()
+with open("temp.xlsx", "wb") as
+f: f.write(responde.content)
+    df =pd.read_excel("temp.xlsx")
+st.sucess("Datos cargados desde google drive")
+except Exception as e:
+st.Error (F" Error: {str)e)}")
+st.stop() 
     
     # Procesar preguntas
     df.columns = df.columns.str.strip()
@@ -250,5 +249,6 @@ elif st.session_state.cargado:
 
 st.markdown("---")
 st.markdown("*Hecho con ❤️ para estudiantes de medicina*")
+
 
 
