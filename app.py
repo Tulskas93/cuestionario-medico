@@ -106,7 +106,7 @@ st.markdown("---")
 if not st.session_state.cargado:
     try:
         # Intentar cargar desde GitHub (para Streamlit Cloud)
-        url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/tus_preguntas.xlsx"
+        url = "https://github.com/Tulskas93/cuestionario-medico/raw/main/tus_preguntas.xlsx"
         urllib.request.urlretrieve(url, "temp.xlsx")
         df = pd.read_excel("temp.xlsx")
         st.success("✅ Datos cargados desde GitHub")
@@ -250,3 +250,4 @@ elif st.session_state.cargado:
 
 st.markdown("---")
 st.markdown("*Hecho con ❤️ para estudiantes de medicina*")
+
