@@ -113,7 +113,12 @@ with st.sidebar:
     if not st.session_state.cargado:
         try:
             # LEE EL EXCEL AUTOMÁTICAMENTE - Cambia el nombre aquí
-            df = pd.read_excel("tus_preguntas.xlsx")
+            import urllib.request
+
+url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/tus_preguntas.xlsx"
+urllib.request.urlretrieve(url, "temp.xlsx")
+df = pd.read_excel("temp.xlsx")
+            
             df.columns = df.columns.str.strip()
             st.session_state.preguntas = procesar_preguntas(df)
             
@@ -272,3 +277,4 @@ else:
 
 st.markdown("---")
 st.markdown("*Hecho con ❤️ para estudiantes de medicina*")
+
