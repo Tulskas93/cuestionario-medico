@@ -61,44 +61,31 @@ def procesar_preguntas(df):
             retroalimentacion = str(row['Retroalimentación'])
             tema = str(row.get('Tema', 'No especificado'))
             
-            # Buscar donde empieza la opción A)
-            match_a = re.search(r'\nA\)', texto_completo)
-            if not match_a:
-                match_a = re.search(r'A\)', texto_completo)
+            # Encontrar el inicio de cada opción
+            pos_a = texto_completo.find('A)')
+            pos_b = texto_completo.find('B)')
+            pos_c = texto_completo.find('C)')
+            pos_d = texto_completo.find('D)')
             
-            if not match_a:
+            # Verificar que existan todas las opciones
+            if pos_a == -1 or pos_b == -1 or pos_c == -1 or pos_d == -1:
                 continue
-                
-            # Separar encabezado de opciones
-            inicio_opciones = match_a.start()
-            encabezado = texto_completo[:inicio_opciones].strip()
-            opciones_texto = texto_completo[inicio_opciones:].strip()
             
-            # Extraer cada opción usando split (más confiable)
+            # El caso está antes de A)
+            encabezado = texto_completo[:pos_a].strip()
+            
+            # Extraer cada opción por posición
             opciones = {}
+            opciones['A'] = texto_completo[pos_a+2:pos_b].strip().replace('\n', ' ')
+            opciones['B'] = texto_completo[pos_b+2:pos_c].strip().replace('\n', ' ')
+            opciones['C'] = texto_completo[pos_c+2:pos_d].strip().replace('\n', ' ')
             
-            # Dividir el texto de opciones por los patrones A), B), C), D)
-            import re
-            partes = re.split(r'([A-D]\))\s*', opciones_texto)
+            # La opción D va hasta el final
+            texto_d = texto_completo[pos_d+2:].strip().replace('\n', ' ')
+            opciones['D'] = texto_d
             
-            # partes[0] es vacío o espacios, partes[1] = "A)", partes[2] = texto A, etc.
-            for i in range(1, len(partes), 2):
-                if i+1 < len(partes):
-                    letra = partes[i].replace(')', '').strip()
-                    texto = partes[i+1].strip()
-                    
-                    # Limpiar: quitar saltos de línea y cualquier otra opción que quedó pegada
-                    texto = texto.replace('\n', ' ').replace('\r', '')
-                    
-                    # Si en el texto quedó "B)" o "C)" al final, cortarlo
-                    for letra_siguiente in ['B)', 'C)', 'D)']:
-                        if letra_siguiente in texto:
-                            texto = texto.split(letra_siguiente)[0].strip()
-                    
-                    if letra in ['A', 'B', 'C', 'D']:
-                        opciones[letra] = texto
-            
-            if len(opciones) == 4:
+            # Verificar que no estén vacías
+            if all(opciones.values()):
                 preguntas.append({
                     'caso': encabezado,
                     'opciones': opciones,
@@ -106,7 +93,9 @@ def procesar_preguntas(df):
                     'explicacion': retroalimentacion,
                     'tema': tema
                 })
+                
         except Exception as e:
+            st.error(f"Error en fila {idx}: {str(e)}")
             continue
     
     return preguntas
@@ -160,6 +149,7 @@ if not st.session_state.cargado:
         st.info(f"📚 {len(st.session_state.preguntas)} preguntas listas")
     else:
         st.error("❌ No se pudieron procesar las preguntas")
+        st.info("Verifica que el Excel tenga las columnas: Pregunta, Respuesta correcta, Retroalimentación")
 
 # SIDEBAR con estadísticas
 with st.sidebar:
@@ -214,12 +204,15 @@ if st.session_state.cargado and st.session_state.indice < len(st.session_state.p
     st.markdown("---")
     st.subheader("Selecciona tu respuesta:")
     
-    opciones_mostradas = {f"{letra}) {texto}": letra 
-                         for letra, texto in preg['opciones'].items()}
+    # Mostrar opciones de forma simple
+    opcion_a = f"A) {preg['opciones']['A']}"
+    opcion_b = f"B) {preg['opciones']['B']}"
+    opcion_c = f"C) {preg['opciones']['C']}"
+    opcion_d = f"D) {preg['opciones']['D']}"
     
     respuesta_usuario = st.radio(
         "Elige una opción:",
-        options=list(opciones_mostradas.keys()),
+        options=[opcion_a, opcion_b, opcion_c, opcion_d],
         index=None,
         key=f"pregunta_{st.session_state.indice}"
     )
@@ -231,7 +224,8 @@ if st.session_state.cargado and st.session_state.indice < len(st.session_state.p
                 st.warning("⚠️ Selecciona una opción primero")
             else:
                 st.session_state.respondido = True
-                seleccion = opciones_mostradas[respuesta_usuario]
+                # Extraer la letra de la respuesta seleccionada
+                seleccion = respuesta_usuario[0]  # Primera letra (A, B, C o D)
                 
                 if seleccion == preg['respuesta']:
                     st.session_state.correctas += 1
@@ -304,8 +298,5 @@ elif st.session_state.cargado:
         st.rerun()
 
 st.markdown("---")
-
-
-
-
+st.markdown("*Hecho con ❤️ para estudiantes de medicina*")
 
