@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import random
 import re
+import urllib.request
 
 # Configuración de la página
 st.set_page_config(
@@ -10,12 +11,10 @@ st.set_page_config(
     layout="centered"
 )
 
-# CSS personalizado para que se vea lindo en celular
+# CSS personalizado
 st.markdown("""
 <style>
-    .main {
-        padding: 1rem;
-    }
+    .main { padding: 1rem; }
     .stButton>button {
         width: 100%;
         border-radius: 10px;
@@ -37,13 +36,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Inicializar variables en session_state
+# Inicializar session_state
 if 'preguntas' not in st.session_state:
     st.session_state.preguntas = []
     st.session_state.indice = 0
     st.session_state.correctas = 0
     st.session_state.respondido = False
-    st.session_state.modo_examen = False
     st.session_state.cargado = False
 
 def procesar_preguntas(df):
@@ -82,7 +80,6 @@ def procesar_preguntas(df):
                 if match:
                     opciones[letra] = match.group(1).strip().replace('\n', ' ')
                 else:
-                    # Intento alternativo
                     patron_alt = rf'{letra}\)\s*([^\n]+)'
                     match_alt = re.search(patron_alt, opciones_texto)
                     if match_alt:
@@ -96,7 +93,7 @@ def procesar_preguntas(df):
                     'explicacion': retroalimentacion,
                     'tema': tema
                 })
-        except:
+        except Exception as e:
             continue
     
     return preguntas
@@ -105,42 +102,39 @@ def procesar_preguntas(df):
 st.title("🏥 Cuestionario Médico")
 st.markdown("---")
 
-# SIDEBAR - Configuración
+# CARGAR DATOS - Intenta desde URL primero, luego local
+if not st.session_state.cargado:
+    try:
+        # Intentar cargar desde GitHub (para Streamlit Cloud)
+        url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/tus_preguntas.xlsx"
+        urllib.request.urlretrieve(url, "temp.xlsx")
+        df = pd.read_excel("temp.xlsx")
+        st.success("✅ Datos cargados desde GitHub")
+    except:
+        # Si falla, intentar archivo local
+        try:
+            df = pd.read_excel("tus_preguntas.xlsx")
+            st.success("✅ Datos cargados localmente")
+        except:
+            st.error("❌ No se encontró el archivo Excel")
+            st.stop()
+    
+    # Procesar preguntas
+    df.columns = df.columns.str.strip()
+    st.session_state.preguntas = procesar_preguntas(df)
+    
+    if st.session_state.preguntas:
+        random.shuffle(st.session_state.preguntas)
+        st.session_state.cargado = True
+        st.info(f"📚 {len(st.session_state.preguntas)} preguntas listas")
+    else:
+        st.error("❌ No se pudieron procesar las preguntas")
+
+# SIDEBAR
 with st.sidebar:
     st.header("⚙️ Configuración")
     
-    # Cargar automáticamente el Excel al inicio
-    if not st.session_state.cargado:
-        try:
-            # LEE EL EXCEL AUTOMÁTICAMENTE - Cambia el nombre aquí
-            import urllib.request
-
-url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/tus_preguntas.xlsx"
-urllib.request.urlretrieve(url, "temp.xlsx")
-df = pd.read_excel("temp.xlsx")
-            
-            df.columns = df.columns.str.strip()
-            st.session_state.preguntas = procesar_preguntas(df)
-            
-            if st.session_state.preguntas:
-                random.shuffle(st.session_state.preguntas)
-                st.session_state.cargado = True
-                st.success(f"✅ {len(st.session_state.preguntas)} preguntas cargadas")
-            else:
-                st.error("❌ No se pudieron procesar las preguntas")
-        except FileNotFoundError:
-            st.error("❌ No se encontró 'tus_preguntas.xlsx'\n\nVerifica que esté en la misma carpeta")
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-    
-    if st.session_state.cargado:
-        st.info(f"📚 {len(st.session_state.preguntas)} preguntas listas")
-    
-    # Modo de estudio
-    st.session_state.modo_examen = st.checkbox("🎯 Modo Examen", value=st.session_state.modo_examen)
-    
-    # Reiniciar
-    if st.button("🔄 Reiniciar"):
+    if st.button("🔄 Reiniciar Cuestionario"):
         st.session_state.indice = 0
         st.session_state.correctas = 0
         st.session_state.respondido = False
@@ -149,132 +143,110 @@ df = pd.read_excel("temp.xlsx")
         st.rerun()
 
 # CONTENIDO PRINCIPAL
-if not st.session_state.cargado:
-    st.warning("👆 Esperando archivo Excel...")
-    
-    st.markdown("""
-    ### 📋 Instrucciones:
-    1. Guarda tu Excel como: **tus_preguntas.xlsx**
-    2. Ponlo en la **misma carpeta** que app.py
-    3. **Recarga** la página (F5)
-    
-    ### Formato esperado:
-    - **Pregunta** (caso + opciones A-D)
-    - **Respuesta correcta** (A, B, C, D)
-    - **Retroalimentación** (explicación)
-    - **Tema** (opcional)
-    """)
-    
-else:
-    # Barra de progreso
+if st.session_state.cargado and st.session_state.indice < len(st.session_state.preguntas):
     total = len(st.session_state.preguntas)
     actual = st.session_state.indice + 1
     progreso = st.session_state.indice / total
     
+    # Barra de progreso
     col1, col2 = st.columns([3, 1])
     with col1:
         st.progress(progreso)
     with col2:
         st.markdown(f"**{actual}/{total}**")
     
-    # Mostrar pregunta actual
-    if st.session_state.indice < total:
-        preg = st.session_state.preguntas[st.session_state.indice]
-        
-        # Tema
-        st.markdown(f"**📚 Tema:** *{preg['tema']}*")
-        
-        # Caso clínico
-        with st.expander("📋 Ver Caso Clínico", expanded=True):
-            st.markdown(preg['caso'])
-        
-        st.markdown("---")
-        
-        # Opciones
-        st.subheader("Selecciona tu respuesta:")
-        
-        opciones_mostradas = {f"{letra}) {texto}": letra 
-                             for letra, texto in preg['opciones'].items()}
-        
-        respuesta_usuario = st.radio(
-            "Elige una opción:",
-            options=list(opciones_mostradas.keys()),
-            index=None,
-            key=f"pregunta_{st.session_state.indice}"
-        )
-        
-        # Botón responder
-        if not st.session_state.respondido:
-            if st.button("✅ Responder", type="primary"):
-                if respuesta_usuario is None:
-                    st.warning("⚠️ Selecciona una opción primero")
-                else:
-                    st.session_state.respondido = True
-                    seleccion = opciones_mostradas[respuesta_usuario]
-                    
-                    if seleccion == preg['respuesta']:
-                        st.session_state.correctas += 1
-                        st.session_state.ultima_correcta = True
-                    else:
-                        st.session_state.ultima_correcta = False
-                    
-                    st.rerun()
-        
-        else:
-            # Mostrar resultado
-            if st.session_state.ultima_correcta:
-                st.markdown("""
-                <div class="correct">
-                    <h3>✅ ¡CORRECTO!</h3>
-                </div>
-                """, unsafe_allow_html=True)
+    # Mostrar pregunta
+    preg = st.session_state.preguntas[st.session_state.indice]
+    
+    st.markdown(f"**📚 Tema:** *{preg['tema']}*")
+    
+    with st.expander("📋 Ver Caso Clínico", expanded=True):
+        st.markdown(preg['caso'])
+    
+    st.markdown("---")
+    st.subheader("Selecciona tu respuesta:")
+    
+    opciones_mostradas = {f"{letra}) {texto}": letra 
+                         for letra, texto in preg['opciones'].items()}
+    
+    respuesta_usuario = st.radio(
+        "Elige una opción:",
+        options=list(opciones_mostradas.keys()),
+        index=None,
+        key=f"pregunta_{st.session_state.indice}"
+    )
+    
+    # Botón responder
+    if not st.session_state.respondido:
+        if st.button("✅ Responder", type="primary"):
+            if respuesta_usuario is None:
+                st.warning("⚠️ Selecciona una opción primero")
             else:
-                st.markdown(f"""
-                <div class="incorrect">
-                    <h3>❌ Incorrecto</h3>
-                    <p>Respuesta correcta: <b>{preg['respuesta']}</b></p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Explicación
-            if not st.session_state.modo_examen:
-                with st.expander("📖 Ver Explicación", expanded=True):
-                    st.markdown(preg['explicacion'])
-            
-            # Botón siguiente
-            if st.button("➡️ Siguiente Pregunta", type="primary"):
-                st.session_state.indice += 1
-                st.session_state.respondido = False
+                st.session_state.respondido = True
+                seleccion = opciones_mostradas[respuesta_usuario]
+                
+                if seleccion == preg['respuesta']:
+                    st.session_state.correctas += 1
+                    st.session_state.ultima_correcta = True
+                else:
+                    st.session_state.ultima_correcta = False
+                
                 st.rerun()
     
     else:
-        # RESULTADOS FINALES
-        st.balloons()
-        st.success("🎉 ¡Cuestionario completado!")
+        # Mostrar resultado
+        if st.session_state.ultima_correcta:
+            st.markdown("""
+            <div class="correct">
+                <h3>✅ ¡CORRECTO!</h3>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="incorrect">
+                <h3>❌ Incorrecto</h3>
+                <p>Respuesta correcta: <b>{preg['respuesta']}</b></p>
+            </div>
+            """, unsafe_allow_html=True)
         
-        porcentaje = (st.session_state.correctas / total) * 100
+        # Explicación
+        with st.expander("📖 Ver Explicación", expanded=True):
+            st.markdown(preg['explicacion'])
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Correctas", f"{st.session_state.correctas}/{total}")
-        with col2:
-            st.metric("Porcentaje", f"{porcentaje:.1f}%")
-        with col3:
-            if porcentaje >= 80:
-                emoji, mensaje = "🌟", "¡Excelente!"
-            elif porcentaje >= 60:
-                emoji, mensaje = "👍", "¡Bien hecho!"
-            else:
-                emoji, mensaje = "💪", "Sigue practicando"
-            st.markdown(f"### {emoji}\n**{mensaje}**")
-        
-        if st.button("🔄 Volver a empezar"):
-            st.session_state.indice = 0
-            st.session_state.correctas = 0
+        # Botón siguiente
+        if st.button("➡️ Siguiente Pregunta", type="primary"):
+            st.session_state.indice += 1
             st.session_state.respondido = False
-            random.shuffle(st.session_state.preguntas)
             st.rerun()
+
+elif st.session_state.cargado:
+    # RESULTADOS FINALES
+    st.balloons()
+    st.success("🎉 ¡Cuestionario completado!")
+    
+    total = len(st.session_state.preguntas)
+    porcentaje = (st.session_state.correctas / total) * 100
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Correctas", f"{st.session_state.correctas}/{total}")
+    with col2:
+        st.metric("Porcentaje", f"{porcentaje:.1f}%")
+    with col3:
+        if porcentaje >= 80:
+            emoji, mensaje = "🌟", "¡Excelente!"
+        elif porcentaje >= 60:
+            emoji, mensaje = "👍", "¡Bien hecho!"
+        else:
+            emoji, mensaje = "💪", "Sigue practicando"
+        st.markdown(f"### {emoji}\n**{mensaje}**")
+    
+    if st.button("🔄 Volver a empezar"):
+        st.session_state.indice = 0
+        st.session_state.correctas = 0
+        st.session_state.respondido = False
+        random.shuffle(st.session_state.preguntas)
+        st.rerun()
 
 st.markdown("---")
 st.markdown("*Hecho con ❤️ para estudiantes de medicina*")
-
