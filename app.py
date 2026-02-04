@@ -294,7 +294,7 @@ elif st.session_state.cargado:
         st.rerun()
 
 st.markdown("---")
-st.markdown("*Hecho con ❤️ para estudiantes de medicina
+
 
 
 
