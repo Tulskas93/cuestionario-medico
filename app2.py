@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime
 
-# Configuración de la página
+# Configuración
 st.set_page_config(
     page_title="Cuestionario Médico Pro",
     page_icon="🏥",
@@ -44,9 +44,7 @@ def guardar_progreso():
         'fecha': datetime.now().isoformat(),
         'correctas': st.session_state.correctas,
         'incorrectas': st.session_state.incorrectas,
-        'total_preguntas': len(st.session_state.preguntas),
         'preguntas_falladas_ids': [p['caso'][:50] for p in st.session_state.preguntas_falladas],
-        'tema': st.session_state.tema_seleccionado
     }
     with open(PROGRESO_FILE, 'w') as f:
         json.dump(progreso, f)
@@ -114,7 +112,7 @@ def filtrar_tema(preguntas, tema):
         return preguntas
     return [p for p in preguntas if p['tema'] == tema]
 
-# CSS según modo
+# CSS
 if st.session_state.modo_oscuro:
     st.markdown("""
     <style>
@@ -138,21 +136,15 @@ else:
 st.title("🏥 Cuestionario Médico Pro")
 st.markdown("---")
 
-# CARGAR DATOS
+# CARGAR DATOS desde GitHub
 if not st.session_state.cargado:
     with st.spinner("Cargando..."):
         try:
-            import subprocess, sys
-            try:
-                import gdown
-            except:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
-                import gdown
+            # URL raw de GitHub - CAMBIA ESTO por tu URL real
+            url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/tus_preguntas.xlsx"
             
-            file_id = "1PXszau9XOTummO8t66XRCVxvGL3KhYN6"
-            gdown.download(f"https://drive.google.com/uc?id={file_id}", "temp.xlsx", quiet=True)
-            
-            df = pd.read_excel("temp.xlsx")
+            # Descargar con pandas directamente
+            df = pd.read_excel(url)
             df.columns = df.columns.str.strip()
             st.session_state.preguntas = procesar_preguntas(df)
             
@@ -163,7 +155,8 @@ if not st.session_state.cargado:
             else:
                 st.error("❌ No se procesaron preguntas")
         except Exception as e:
-            st.error(f"❌ Error: {e}")
+            st.error(f"❌ Error cargando datos: {e}")
+            st.info("💡 Asegúrate de subir el archivo Excel a GitHub y actualizar la URL")
             st.stop()
 
 # SIDEBAR
@@ -238,10 +231,8 @@ if st.session_state.cargado:
         with col2:
             st.markdown(f"**{st.session_state.indice + 1}/{total}**")
         
-        # TEMA
         st.markdown(f"**📚 Tema:** *{preg['tema']}*")
         
-        # CASO CLÍNICO
         with st.expander("📋 Ver Caso Clínico", expanded=True):
             st.markdown(preg['caso'])
             if st.session_state.voz_activada:
@@ -251,7 +242,6 @@ if st.session_state.cargado:
         st.markdown("---")
         st.subheader("Selecciona tu respuesta:")
         
-        # OPCIONES
         opciones = [
             f"A) {preg['opciones']['A']}",
             f"B) {preg['opciones']['B']}",
@@ -281,7 +271,6 @@ if st.session_state.cargado:
                     
                     st.rerun()
         else:
-            # RESULTADO
             if st.session_state.ultima_correcta:
                 st.markdown('<div class="correct"><h3>✅ ¡CORRECTO!</h3></div>', unsafe_allow_html=True)
             else:
@@ -299,7 +288,6 @@ if st.session_state.cargado:
                 st.rerun()
     
     else:
-        # FIN
         st.balloons()
         st.success("🎉 ¡Completado!")
         total = st.session_state.correctas + st.session_state.incorrectas
