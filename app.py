@@ -102,21 +102,40 @@ def procesar_preguntas(df):
 st.title("🏥 Cuestionario Médico")
 st.markdown("---")
 
-# CARGAR DATOS - Intenta desde URL primero, luego local
 if not st.session_state.cargado:
     try:
         import requests
-file_id = "https://docs.google.com/spreadsheets/d/1PXszau9XOTummO8t66XRCVxvGL3KhYN6/edit?usp=sharing&ouid=107015331609668097589&rtpof=true&sd=true"
-url = f"https://drive.google.com/uc?id={file_id}"
-response = requests.get(url,timeout=30)
-response.raise_for_estatus()
-with open("temp.xlsx", "wb") as
-f: f.write(responde.content)
-    df =pd.read_excel("temp.xlsx")
-st.sucess("Datos cargados desde google drive")
-except Exception as e:
-st.Error (F" Error: {str)e)}")
-st.stop() 
+
+    
+        file_id = "1PXszau9XOTummO8t66XRCVxvGL3KhYN6"
+
+        url = f"https://drive.google.com/uc?export=download&id={file_id}
+        
+        
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        with open("temp.xlsx", "wb") as f:
+            f.write(response.content)
+        
+        df = pd.read_excel("temp.xlsx")
+        st.success("✅ Datos cargados desde Google Drive")
+        
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+        st.stop()
+    
+    # Procesar preguntas
+    df.columns = df.columns.str.strip()
+    st.session_state.preguntas = procesar_preguntas(df)
+    
+    if st.session_state.preguntas:
+        random.shuffle(st.session_state.preguntas)
+        st.session_state.cargado = True
+        st.info(f"📚 {len(st.session_state.preguntas)} preguntas listas")
+    else:
+        st.error("❌ No se pudieron procesar las preguntas")
+        
     
     # Procesar preguntas
     df.columns = df.columns.str.strip()
@@ -249,6 +268,7 @@ elif st.session_state.cargado:
 
 st.markdown("---")
 st.markdown("*Hecho con ❤️ para estudiantes de medicina*")
+
 
 
 
