@@ -61,32 +61,42 @@ def procesar_preguntas(df):
             retroalimentacion = str(row['Retroalimentación'])
             tema = str(row.get('Tema', 'No especificado'))
             
-            match_a = re.search(r'A\)', texto_completo)
+            # Buscar donde empieza la opción A)
+            match_a = re.search(r'\nA\)', texto_completo)
+            if not match_a:
+                match_a = re.search(r'A\)', texto_completo)
             
             if not match_a:
                 continue
                 
+            # Separar encabezado de opciones
             inicio_opciones = match_a.start()
             encabezado = texto_completo[:inicio_opciones].strip()
-            opciones_texto = texto_completo[inicio_opciones:]
+            opciones_texto = texto_completo[inicio_opciones:].strip()
             
+            # Extraer cada opción usando split (más confiable)
             opciones = {}
-            letras = ['A', 'B', 'C', 'D']
             
-            for i, letra in enumerate(letras):
-                if i < 3:
-                    patron = rf'{letra}\)\s*(.+?)(?=\n{letras[i+1]}\)|$)'
-                else:
-                    patron = rf'{letra}\)\s*(.+)'
+            # Dividir el texto de opciones por los patrones A), B), C), D)
+            import re
+            partes = re.split(r'([A-D]\))\s*', opciones_texto)
+            
+            # partes[0] es vacío o espacios, partes[1] = "A)", partes[2] = texto A, etc.
+            for i in range(1, len(partes), 2):
+                if i+1 < len(partes):
+                    letra = partes[i].replace(')', '').strip()
+                    texto = partes[i+1].strip()
                     
-                match = re.search(patron, opciones_texto, re.DOTALL)
-                if match:
-                    opciones[letra] = match.group(1).strip().replace('\n', ' ')
-                else:
-                    patron_alt = rf'{letra}\)\s*([^\n]+)'
-                    match_alt = re.search(patron_alt, opciones_texto)
-                    if match_alt:
-                        opciones[letra] = match_alt.group(1).strip()
+                    # Limpiar: quitar saltos de línea y cualquier otra opción que quedó pegada
+                    texto = texto.replace('\n', ' ').replace('\r', '')
+                    
+                    # Si en el texto quedó "B)" o "C)" al final, cortarlo
+                    for letra_siguiente in ['B)', 'C)', 'D)']:
+                        if letra_siguiente in texto:
+                            texto = texto.split(letra_siguiente)[0].strip()
+                    
+                    if letra in ['A', 'B', 'C', 'D']:
+                        opciones[letra] = texto
             
             if len(opciones) == 4:
                 preguntas.append({
@@ -294,6 +304,7 @@ elif st.session_state.cargado:
         st.rerun()
 
 st.markdown("---")
+
 
 
 
