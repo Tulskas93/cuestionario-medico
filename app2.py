@@ -7,7 +7,7 @@ import json
 import os
 from datetime import datetime, timedelta
 
-# Configuración de la página
+# Configuración de la página - DEBE SER LO PRIMERO
 st.set_page_config(
     page_title="Cuestionario Médico Pro",
     page_icon="🏥",
@@ -27,9 +27,10 @@ if 'preguntas' not in st.session_state:
     st.session_state.modo_repaso = False
     st.session_state.preguntas_falladas = []
     st.session_state.tiempo_inicio = None
-    st.session_state.tiempo_pregunta = 30  # segundos por pregunta
+    st.session_state.tiempo_pregunta = 30
     st.session_state.modo_oscuro = False
     st.session_state.voz_activada = False
+    st.session_state.tiempo_restante = 30
 
 # Archivo para guardar progreso
 PROGRESO_FILE = "progreso.json"
@@ -59,17 +60,17 @@ def guardar_progreso():
 
 def formatear_tiempo(segundos):
     """Convierte segundos a formato MM:SS"""
-    return str(timedelta(seconds=int(segundos)))[2:7]
+    return str(timedelta(seconds=int(max(0, segundos))))[2:7]
 
 def leer_texto(texto):
-    """Función para lector de voz (usando HTML5)"""
+    """Función para lector de voz"""
     if st.session_state.voz_activada:
-        # Usar JavaScript para síntesis de voz
         js_code = f"""
         <script>
         if ('speechSynthesis' in window) {{
+            window.speechSynthesis.cancel();
             var msg = new SpeechSynthesisUtterance();
-            msg.text = "{texto.replace('"', "'")}";
+            msg.text = "{texto.replace('"', "'").replace(chr(10), ' ')}";
             msg.lang = 'es-ES';
             msg.rate = 0.9;
             window.speechSynthesis.speak(msg);
@@ -89,7 +90,6 @@ def procesar_preguntas(df):
             retroalimentacion = str(row['Retroalimentación'])
             tema = str(row.get('Tema', 'Sin tema'))
             
-            # Encontrar el inicio de cada opción
             pos_a = texto_completo.find('A)')
             pos_b = texto_completo.find('B)')
             pos_c = texto_completo.find('C)')
@@ -132,107 +132,120 @@ def filtrar_por_tema(preguntas, tema):
         return preguntas
     return [p for p in preguntas if p['tema'] == tema]
 
-# CSS personalizado con modo oscuro
-def get_css():
-    if st.session_state.modo_oscuro:
-        return """
-        <style>
-        .main { 
-            background-color: #1a1a1a;
-            color: #ffffff;
-            padding: 1rem;
-        }
-        .stButton>button {
-            width: 100%;
-            border-radius: 10px;
-            height: 3em;
-            font-size: 16px;
-            background-color: #2c3e50;
-            color: white;
-        }
-        .correct {
-            background-color: #1e4620;
-            color: white;
-            padding: 1rem;
-            border-radius: 10px;
-            border-left: 5px solid #4caf50;
-        }
-        .incorrect {
-            background-color: #4a1c1c;
-            color: white;
-            padding: 1rem;
-            border-radius: 10px;
-            border-left: 5px solid #f44336;
-        }
-        .stats-box {
-            background-color: #2c3e50;
-            color: white;
-            padding: 1rem;
-            border-radius: 10px;
-            margin-bottom: 1rem;
-        }
-        .timer-box {
-            background-color: #e74c3c;
-            color: white;
-            padding: 0.5rem;
-            border-radius: 5px;
-            text-align: center;
-            font-size: 1.2em;
-            font-weight: bold;
-        }
-        .timer-box.warning {
-            background-color: #f39c12;
-        }
-        h1, h2, h3, h4, p { color: #ffffff !important; }
-        </style>
-        """
-    else:
-        return """
-        <style>
-        .main { 
-            background-color: #f5f5f5;
-            padding: 1rem;
-        }
-        .stButton>button {
-            width: 100%;
-            border-radius: 10px;
-            height: 3em;
-            font-size: 16px;
-        }
-        .correct {
-            background-color: #d4edda;
-            padding: 1rem;
-            border-radius: 10px;
-            border-left: 5px solid #28a745;
-        }
-        .incorrect {
-            background-color: #f8d7da;
-            padding: 1rem;
-            border-radius: 10px;
-            border-left: 5px solid #dc3545;
-        }
-        .stats-box {
-            background-color: #e3f2fd;
-            padding: 1rem;
-            border-radius: 10px;
-            margin-bottom: 1rem;
-        }
-        .timer-box {
-            background-color: #3498db;
-            color: white;
-            padding: 0.5rem;
-            border-radius: 5px;
-            text-align: center;
-            font-size: 1.2em;
-            font-weight: bold;
-        }
-        .timer-box.warning {
-            background-color: #e67e22;
-        }
-        </style>
-        """
-
-st.markdown(get_css(), unsafe_allow_html=True)
+# CSS personalizado con modo oscuro CORREGIDO
+if st.session_state.modo_oscuro:
+    st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0e1117;
+        color: #fafafa;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        font-size: 16px;
+        background-color: #262730;
+        color: #fafafa;
+        border: 1px solid #4a4a4a;
+    }
+    .stRadio > label {
+        color: #fafafa !important;
+    }
+    .stMarkdown {
+        color: #fafafa !important;
+    }
+    .stExpander {
+        background-color: #262730;
+        border: 1px solid #4a4a4a;
+    }
+    .correct {
+        background-color: #1e4620;
+        color: #fafafa;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 5px solid #4caf50;
+    }
+    .incorrect {
+        background-color: #4a1c1c;
+        color: #fafafa;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 5px solid #f44336;
+    }
+    .stats-box {
+        background-color: #262730;
+        color: #fafafa;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        border: 1px solid #4a4a4a;
+    }
+    .timer-box {
+        background-color: #e74c3c;
+        color: white;
+        padding: 0.5rem;
+        border-radius: 5px;
+        text-align: center;
+        font-size: 1.2em;
+        font-weight: bold;
+    }
+    .timer-box.warning {
+        background-color: #f39c12;
+    }
+    h1, h2, h3, h4, h5, h6, p, label {
+        color: #fafafa !important;
+    }
+    .stSidebar {
+        background-color: #1e2129;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <style>
+    .stApp {
+        background-color: #ffffff;
+        color: #31333f;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        font-size: 16px;
+    }
+    .correct {
+        background-color: #d4edda;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 5px solid #28a745;
+    }
+    .incorrect {
+        background-color: #f8d7da;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 5px solid #dc3545;
+    }
+    .stats-box {
+        background-color: #e3f2fd;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+    }
+    .timer-box {
+        background-color: #3498db;
+        color: white;
+        padding: 0.5rem;
+        border-radius: 5px;
+        text-align: center;
+        font-size: 1.2em;
+        font-weight: bold;
+    }
+    .timer-box.warning {
+        background-color: #e67e22;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # TÍTULO PRINCIPAL
 st.title("🏥 Cuestionario Médico Pro")
@@ -260,10 +273,9 @@ if not st.session_state.cargado:
             st.session_state.preguntas = procesar_preguntas(df)
             
             if st.session_state.preguntas:
-                # Cargar progreso anterior
                 progreso = cargar_progreso()
-                if progreso and 'preguntas_falladas_ids' in progreso:
-                    st.info(f"📂 Progreso anterior encontrado: {progreso['correctas']} correctas, {progreso['incorrectas']} incorrectas")
+                if progreso:
+                    st.info(f"📂 Progreso anterior: {progreso['correctas']}✓ {progreso['incorrectas']}✗")
                 
                 st.session_state.temas_disponibles = get_temas_disponibles(st.session_state.preguntas)
                 st.session_state.cargado = True
@@ -275,37 +287,34 @@ if not st.session_state.cargado:
             st.error(f"❌ Error: {str(e)}")
             st.stop()
 
-# SIDEBAR - Configuración completa
+# SIDEBAR
 with st.sidebar:
     st.header("⚙️ Configuración")
     
     if st.session_state.cargado:
         # Modo oscuro
-        st.session_state.modo_oscuro = st.toggle("🌙 Modo Oscuro", value=st.session_state.modo_oscuro)
+        modo_oscuro_nuevo = st.toggle("🌙 Modo Oscuro", value=st.session_state.modo_oscuro)
+        if modo_oscuro_nuevo != st.session_state.modo_oscuro:
+            st.session_state.modo_oscuro = modo_oscuro_nuevo
+            st.rerun()
         
         # Lector de voz
         st.session_state.voz_activada = st.toggle("🔊 Lector de Voz", value=st.session_state.voz_activada)
         
         # Selección de tema
-        st.session_state.tema_seleccionado = st.selectbox(
-            "📚 Seleccionar Tema",
-            options=st.session_state.temas_disponibles
-        )
+        tema_nuevo = st.selectbox("📚 Tema", options=st.session_state.temas_disponibles, 
+                                  index=st.session_state.temas_disponibles.index(st.session_state.tema_seleccionado))
+        if tema_nuevo != st.session_state.tema_seleccionado:
+            st.session_state.tema_seleccionado = tema_nuevo
+            st.session_state.indice = 0
+            st.session_state.respondido = False
+            st.rerun()
         
         # Modo repaso
-        st.session_state.modo_repaso = st.toggle(
-            "🎯 Modo Repaso (solo falladas)",
-            value=st.session_state.modo_repaso,
-            help="Practica solo las preguntas que has respondido incorrectamente"
-        )
+        st.session_state.modo_repaso = st.toggle("🎯 Modo Repaso (falladas)", value=st.session_state.modo_repaso)
         
         # Tiempo por pregunta
-        st.session_state.tiempo_pregunta = st.slider(
-            "⏱️ Tiempo por pregunta (segundos)",
-            min_value=10,
-            max_value=120,
-            value=30
-        )
+        st.session_state.tiempo_pregunta = st.slider("⏱️ Tiempo (segundos)", 10, 120, 30)
         
         st.markdown("---")
         
@@ -319,42 +328,32 @@ with st.sidebar:
             <p>❌ <b>Incorrectas:</b> {st.session_state.incorrectas}</p>
             <p>📊 <b>Total:</b> {total_resp}</p>
             <p>🎯 <b>Precisión:</b> {(st.session_state.correctas/total_resp*100 if total_resp > 0 else 0):.1f}%</p>
-            <p>📝 <b>Falladas guardadas:</b> {len(st.session_state.preguntas_falladas)}</p>
+            <p>📝 <b>En repaso:</b> {len(st.session_state.preguntas_falladas)}</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # Guardar progreso
         if st.button("💾 Guardar Progreso"):
             guardar_progreso()
-            st.success("✅ Progreso guardado")
+            st.success("✅ Guardado")
         
-        # Reiniciar
         if st.button("🔄 Reiniciar Todo"):
-            st.session_state.indice = 0
-            st.session_state.correctas = 0
-            st.session_state.incorrectas = 0
-            st.session_state.respondido = False
-            st.session_state.preguntas_falladas = []
-            st.session_state.tiempo_inicio = None
-            random.shuffle(st.session_state.preguntas)
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
             st.rerun()
 
-# Preparar preguntas según filtros
+# Preparar preguntas
 if st.session_state.cargado:
-    # Filtrar por tema
     preguntas_filtradas = filtrar_por_tema(st.session_state.preguntas, st.session_state.tema_seleccionado)
     
-    # Si está en modo repaso, usar solo falladas de este tema
     if st.session_state.modo_repaso and st.session_state.preguntas_falladas:
         ids_falladas = [p['id'] for p in st.session_state.preguntas_falladas]
         preguntas_a_mostrar = [p for p in preguntas_filtradas if p['id'] in ids_falladas]
         if not preguntas_a_mostrar:
-            st.warning("⚠️ No hay preguntas falladas en este tema. Mostrando todas.")
+            st.warning("⚠️ No hay falladas en este tema")
             preguntas_a_mostrar = preguntas_filtradas
     else:
         preguntas_a_mostrar = preguntas_filtradas
     
-    # Barajar si es primera vez
     if st.session_state.indice == 0 and not st.session_state.respondido:
         random.shuffle(preguntas_a_mostrar)
     
@@ -363,33 +362,52 @@ if st.session_state.cargado:
     if total > 0 and st.session_state.indice < total:
         preg = preguntas_a_mostrar[st.session_state.indice]
         
-        # Iniciar tiempo si es primera vez
+        # Iniciar tiempo
         if st.session_state.tiempo_inicio is None:
             st.session_state.tiempo_inicio = time.time()
         
-        # Calcular tiempo restante
+        # Contenedor para el tiempo (se actualizará)
+        tiempo_container = st.empty()
+        
+        # Calcular y mostrar tiempo
         tiempo_transcurrido = time.time() - st.session_state.tiempo_inicio
         tiempo_restante = max(0, st.session_state.tiempo_pregunta - tiempo_transcurrido)
         
-        # Mostrar barra de progreso y tiempo
-        col1, col2, col3 = st.columns([2, 1, 1])
+        # Actualizar visual del tiempo
+        timer_class = "timer-box warning" if tiempo_restante < 10 else "timer-box"
+        tiempo_container.markdown(f'<div class="{timer_class}">⏱️ {formatear_tiempo(tiempo_restante)}</div>', 
+                                   unsafe_allow_html=True)
+        
+        # Verificar tiempo agotado
+        if tiempo_restante <= 0 and not st.session_state.respondido:
+            st.error("⏰ ¡Tiempo agotado!")
+            st.session_state.respondido = True
+            st.session_state.incorrectas += 1
+            st.session_state.ultima_correcta = False
+            if preg not in st.session_state.preguntas_falladas:
+                st.session_state.preguntas_falladas.append(preg)
+            st.rerun()
+        
+        # Auto-refresh para tiempo real (cada segundo)
+        if not st.session_state.respondido and tiempo_restante > 0:
+            time.sleep(0.5)
+            st.rerun()
+        
+        # Barra de progreso
+        col1, col2 = st.columns([3, 1])
         with col1:
             st.progress(st.session_state.indice / total)
         with col2:
             st.markdown(f"**{st.session_state.indice + 1}/{total}**")
-        with col3:
-            timer_class = "timer-box warning" if tiempo_restante < 10 else "timer-box"
-            st.markdown(f'<div class="{timer_class}">⏱️ {formatear_tiempo(tiempo_restante)}</div>', unsafe_allow_html=True)
         
         # Tema
         st.markdown(f"**📚 Tema:** *{preg['tema']}*")
         
-        # Caso clínico con lector de voz
+        # Caso clínico
         with st.expander("📋 Ver Caso Clínico", expanded=True):
             st.markdown(preg['caso'])
-            if st.session_state.voz_activada:
-                if st.button("🔊 Escuchar caso"):
-                    leer_texto(preg['caso'])
+            if st.session_state.voz_activada and st.button("🔊 Escuchar caso", key=f"voz_caso_{st.session_state.indice}"):
+                leer_texto(preg['caso'])
         
         st.markdown("---")
         st.subheader("Selecciona tu respuesta:")
@@ -409,19 +427,6 @@ if st.session_state.cargado:
             key=f"pregunta_{st.session_state.indice}"
         )
         
-        # Verificar si se acabó el tiempo
-        tiempo_agotado = tiempo_restante <= 0 and not st.session_state.respondido
-        
-        if tiempo_agotado:
-            st.error("⏰ ¡Tiempo agotado!")
-            st.session_state.respondido = True
-            st.session_state.incorrectas += 1
-            st.session_state.ultima_correcta = False
-            # Guardar como fallada
-            if preg not in st.session_state.preguntas_falladas:
-                st.session_state.preguntas_falladas.append(preg)
-            st.rerun()
-        
         # Botón responder
         if not st.session_state.respondido:
             if st.button("✅ Responder", type="primary"):
@@ -434,44 +439,33 @@ if st.session_state.cargado:
                     if seleccion == preg['respuesta']:
                         st.session_state.correctas += 1
                         st.session_state.ultima_correcta = True
-                        # Si acertó y estaba en falladas, quitarla
                         st.session_state.preguntas_falladas = [
                             p for p in st.session_state.preguntas_falladas if p['id'] != preg['id']
                         ]
                     else:
                         st.session_state.incorrectas += 1
                         st.session_state.ultima_correcta = False
-                        # Guardar como fallada
                         if preg not in st.session_state.preguntas_falladas:
                             st.session_state.preguntas_falladas.append(preg)
                     
                     st.rerun()
         
         else:
-            # Mostrar resultado
+            # Resultado
             if st.session_state.ultima_correcta:
-                st.markdown("""
-                <div class="correct">
-                    <h3>✅ ¡CORRECTO!</h3>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown('<div class="correct"><h3>✅ ¡CORRECTO!</h3></div>', unsafe_allow_html=True)
             else:
-                st.markdown(f"""
-                <div class="incorrect">
-                    <h3>❌ Incorrecto</h3>
-                    <p>Respuesta correcta: <b>{preg['respuesta']}</b></p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f'<div class="incorrect"><h3>❌ Incorrecto</h3><p>Respuesta: <b>{preg["respuesta"]}</b></p></div>', 
+                           unsafe_allow_html=True)
             
-            # Explicación con lector de voz
+            # Explicación
             with st.expander("📖 Ver Explicación", expanded=True):
                 st.markdown(preg['explicacion'])
-                if st.session_state.voz_activada:
-                    if st.button("🔊 Escuchar explicación"):
-                        leer_texto(preg['explicacion'])
+                if st.session_state.voz_activada and st.button("🔊 Escuchar explicación", key=f"voz_exp_{st.session_state.indice}"):
+                    leer_texto(preg['explicacion'])
             
-            # Botón siguiente
-            if st.button("➡️ Siguiente Pregunta", type="primary"):
+            # Siguiente
+            if st.button("➡️ Siguiente", type="primary"):
                 st.session_state.indice += 1
                 st.session_state.respondido = False
                 st.session_state.tiempo_inicio = None
@@ -480,24 +474,19 @@ if st.session_state.cargado:
     else:
         # RESULTADOS FINALES
         st.balloons()
-        st.success("🎉 ¡Cuestionario completado!")
+        st.success("🎉 ¡Completado!")
         
         total_resp = st.session_state.correctas + st.session_state.incorrectas
         porcentaje = (st.session_state.correctas / total_resp * 100) if total_resp > 0 else 0
         
         col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("✅ Correctas", st.session_state.correctas)
-        with col2:
-            st.metric("❌ Incorrectas", st.session_state.incorrectas)
-        with col3:
-            st.metric("📊 Precisión", f"{porcentaje:.1f}%")
-        with col4:
-            st.metric("📝 Falladas", len(st.session_state.preguntas_falladas))
+        col1.metric("✅ Correctas", st.session_state.correctas)
+        col2.metric("❌ Incorrectas", st.session_state.incorrectas)
+        col3.metric("📊 Precisión", f"{porcentaje:.1f}%")
+        col4.metric("📝 En repaso", len(st.session_state.preguntas_falladas))
         
-        # Mensaje según desempeño
         if porcentaje >= 80:
-            emoji, mensaje = "🌟", "¡Excelente trabajo!"
+            emoji, mensaje = "🌟", "¡Excelente!"
         elif porcentaje >= 60:
             emoji, mensaje = "👍", "¡Buen trabajo!"
         else:
@@ -505,20 +494,17 @@ if st.session_state.cargado:
         
         st.markdown(f"### {emoji} {mensaje}")
         
-        # Opciones al finalizar
         col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("🔄 Volver a empezar"):
+            if st.button("🔄 Reiniciar"):
                 st.session_state.indice = 0
                 st.session_state.correctas = 0
                 st.session_state.incorrectas = 0
                 st.session_state.respondido = False
                 st.session_state.tiempo_inicio = None
-                random.shuffle(preguntas_a_mostrar)
                 st.rerun()
-        
         with col2:
-            if st.button("🎯 Modo Repaso (Falladas)"):
+            if st.button("🎯 Modo Repaso"):
                 st.session_state.indice = 0
                 st.session_state.correctas = 0
                 st.session_state.incorrectas = 0
@@ -526,11 +512,10 @@ if st.session_state.cargado:
                 st.session_state.modo_repaso = True
                 st.session_state.tiempo_inicio = None
                 st.rerun()
-        
         with col3:
-            if st.button("💾 Guardar y Salir"):
+            if st.button("💾 Guardar"):
                 guardar_progreso()
-                st.success("✅ Progreso guardado. ¡Hasta luego!")
+                st.success("✅ Guardado")
 
 st.markdown("---")
-st.markdown("*🏥 Cuestionario Médico Pro - Hecho con ❤️*")
+st.markdown("*🏥 Cuestionario Médico Pro*")
