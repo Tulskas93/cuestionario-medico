@@ -6,305 +6,570 @@ import json
 import os
 from datetime import datetime
 
-# Configuración
+# Configuración inicial
 st.set_page_config(
-    page_title="Cuestionario Médico Pro",
+    page_title="Cuestionario Médico",
     page_icon="🏥",
     layout="centered",
     initial_sidebar_state="expanded"
 )
 
-# Inicializar session_state
-if 'preguntas' not in st.session_state:
-    st.session_state.preguntas = []
-    st.session_state.indice = 0
-    st.session_state.correctas = 0
-    st.session_state.incorrectas = 0
-    st.session_state.respondido = False
-    st.session_state.cargado = False
-    st.session_state.tema_seleccionado = "Todos"
-    st.session_state.modo_repaso = False
-    st.session_state.preguntas_falladas = []
-    st.session_state.modo_oscuro = False
-    st.session_state.voz_activada = False
+# ============================================
+# INICIALIZAR SESSION STATE
+# ============================================
+defaults = {
+    'preguntas': [],
+    'preguntas_filtradas': [],
+    'indice': 0,
+    'correctas': 0,
+    'incorrectas': 0,
+    'respondido': False,
+    'cargado': False,
+    'tema_seleccionado': "Todos",
+    'modo_repaso': False,
+    'preguntas_falladas': [],
+    'modo_oscuro': False,
+    'voz_activada': False,
+    'mostrar_resultado': False
+}
 
-PROGRESO_FILE = "progreso.json"
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+PROGRESO_FILE = "progreso_medico.json"
+
+# ============================================
+# FUNCIONES AUXILIARES
+# ============================================
 
 def cargar_progreso():
+    """Carga progreso guardado"""
     if os.path.exists(PROGRESO_FILE):
         try:
-            with open(PROGRESO_FILE, 'r') as f:
-                return json.load(f)
+            with open(PROGRESO_FILE, 'r', encoding='utf-8') as f:
+                datos = json.load(f)
+                st.session_state.correctas = datos.get('correctas', 0)
+                st.session_state.incorrectas = datos.get('incorrectas', 0)
+                st.session_state.preguntas_falladas = datos.get('falladas', [])
+                return True
         except:
-            return {}
-    return {}
+            pass
+    return False
 
 def guardar_progreso():
-    progreso = {
+    """Guarda progreso actual"""
+    datos = {
         'fecha': datetime.now().isoformat(),
         'correctas': st.session_state.correctas,
         'incorrectas': st.session_state.incorrectas,
-        'preguntas_falladas_ids': [p['caso'][:50] for p in st.session_state.preguntas_falladas],
+        'falladas': st.session_state.preguntas_falladas,
+        'total_preguntas': len(st.session_state.preguntas)
     }
-    with open(PROGRESO_FILE, 'w') as f:
-        json.dump(progreso, f)
+    with open(PROGRESO_FILE, 'w', encoding='utf-8') as f:
+        json.dump(datos, f, ensure_ascii=False, indent=2)
 
-def leer_texto(texto):
-    if st.session_state.voz_activada:
-        js_code = f"""
-        <script>
+def hablar(texto, tipo="mujer"):
+    """Lector de voz con voz femenina dulce"""
+    if not st.session_state.voz_activada:
+        return
+    
+    # Limpiar texto para JavaScript
+    texto_limpio = texto.replace('"', "'").replace('\n', ' ').replace('\r', '')
+    texto_limpio = re.sub(r'\s+', ' ', texto_limpio).strip()[:500]  # Limitar longitud
+    
+    js = f"""
+    <script>
+    (function() {{
         if ('speechSynthesis' in window) {{
             window.speechSynthesis.cancel();
             var msg = new SpeechSynthesisUtterance();
-            msg.text = "{texto.replace('"', "'").replace(chr(10), ' ')}";
+            msg.text = "{texto_limpio}";
             msg.lang = 'es-ES';
-            msg.rate = 0.9;
+            msg.rate = 0.85;
+            msg.pitch = 1.2;
+            msg.volume = 1.0;
+            
+            // Buscar voz femenina española
+            var voces = window.speechSynthesis.getVoices();
+            var vozFemenina = voces.find(function(v) {{
+                return v.lang.includes('es') && (v.name.includes('Female') || 
+                       v.name.includes('Mujer') || v.name.includes('Monica') || 
+                       v.name.includes('Helena') || v.name.includes('Laura'));
+            }});
+            
+            if (vozFemenina) {{
+                msg.voice = vozFemenina;
+            }}
+            
             window.speechSynthesis.speak(msg);
         }}
-        </script>
-        """
-        st.components.v1.html(js_code, height=0)
+    }})();
+    </script>
+    """
+    st.components.v1.html(js, height=0)
 
-def procesar_preguntas(df):
+def extraer_preguntas(df):
+    """Extrae preguntas del Excel con formato texto plano"""
     preguntas = []
+    
     for idx, row in df.iterrows():
         try:
-            texto_completo = str(row['Pregunta'])
-            respuesta_correcta = str(row['Respuesta correcta']).strip().upper()
-            retroalimentacion = str(row['Retroalimentación'])
-            tema = str(row.get('Tema', 'Sin tema'))
+            texto = str(row.get('Pregunta', ''))
+            respuesta = str(row.get('Respuesta correcta', '')).strip().upper()
+            explicacion = str(row.get('Retroalimentación', ''))
+            tema = str(row.get('Tema', 'General'))
             
-            pos_a = texto_completo.find('A)')
-            pos_b = texto_completo.find('B)')
-            pos_c = texto_completo.find('C)')
-            pos_d = texto_completo.find('D)')
+            # Encontrar posiciones de opciones
+            pos_a = texto.find('A)')
+            pos_b = texto.find('B)')
+            pos_c = texto.find('C)')
+            pos_d = texto.find('D)')
             
-            if -1 in [pos_a, pos_b, pos_c, pos_d]:
+            # Validar que existan todas
+            if any(p == -1 for p in [pos_a, pos_b, pos_c, pos_d]):
                 continue
             
-            encabezado = texto_completo[:pos_a].strip()
-            opciones = {
-                'A': texto_completo[pos_a+2:pos_b].strip().replace('\n', ' '),
-                'B': texto_completo[pos_b+2:pos_c].strip().replace('\n', ' '),
-                'C': texto_completo[pos_c+2:pos_d].strip().replace('\n', ' '),
-                'D': texto_completo[pos_d+2:].strip().replace('\n', ' ')
-            }
+            # Extraer partes
+            caso = texto[:pos_a].strip()
+            op_a = texto[pos_a+2:pos_b].strip()
+            op_b = texto[pos_b+2:pos_c].strip()
+            op_c = texto[pos_c+2:pos_d].strip()
+            op_d = texto[pos_d+2:].strip()
             
-            if all(opciones.values()):
-                preguntas.append({
-                    'id': f"{tema}_{idx}",
-                    'caso': encabezado,
-                    'opciones': opciones,
-                    'respuesta': respuesta_correcta,
-                    'explicacion': retroalimentacion,
-                    'tema': tema
-                })
-        except:
+            # Limpiar saltos de línea
+            caso = caso.replace('\n', ' ')
+            op_a = op_a.replace('\n', ' ')
+            op_b = op_b.replace('\n', ' ')
+            op_c = op_c.replace('\n', ' ')
+            op_d = op_d.replace('\n', ' ')
+            
+            # Crear ID único
+            pregunta_id = f"{tema}_{idx}_{caso[:30]}"
+            
+            preguntas.append({
+                'id': pregunta_id,
+                'caso': caso,
+                'opciones': {
+                    'A': op_a,
+                    'B': op_b,
+                    'C': op_c,
+                    'D': op_d
+                },
+                'respuesta_correcta': respuesta,
+                'explicacion': explicacion,
+                'tema': tema
+            })
+            
+        except Exception as e:
             continue
+    
     return preguntas
 
-def get_temas(preguntas):
-    temas = list(set([p['tema'] for p in preguntas]))
-    return ["Todos"] + sorted(temas)
+def obtener_temas(preguntas):
+    """Obtiene lista única de temas"""
+    temas = sorted(list(set(p['tema'] for p in preguntas)))
+    return ["Todos"] + temas
 
-def filtrar_tema(preguntas, tema):
+def filtrar_preguntas(preguntas, tema):
+    """Filtra por tema seleccionado"""
     if tema == "Todos":
-        return preguntas
+        return preguntas[:]
     return [p for p in preguntas if p['tema'] == tema]
 
-# CSS
-if st.session_state.modo_oscuro:
-    st.markdown("""
-    <style>
-    .stApp { background-color: #0e1117; color: #fafafa; }
-    .stButton>button { background-color: #262730; color: #fafafa; }
-    .correct { background-color: #1e4620; color: #fafafa; padding: 1rem; border-radius: 10px; border-left: 5px solid #4caf50; }
-    .incorrect { background-color: #4a1c1c; color: #fafafa; padding: 1rem; border-radius: 10px; border-left: 5px solid #f44336; }
-    .stats-box { background-color: #262730; color: #fafafa; padding: 1rem; border-radius: 10px; }
-    h1, h2, h3, p, label { color: #fafafa !important; }
-    </style>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown("""
-    <style>
-    .correct { background-color: #d4edda; padding: 1rem; border-radius: 10px; border-left: 5px solid #28a745; }
-    .incorrect { background-color: #f8d7da; padding: 1rem; border-radius: 10px; border-left: 5px solid #dc3545; }
-    .stats-box { background-color: #e3f2fd; padding: 1rem; border-radius: 10px; }
-    </style>
-    """, unsafe_allow_html=True)
+def preparar_preguntas():
+    """Prepara lista final según modo y filtros"""
+    lista = filtrar_preguntas(st.session_state.preguntas, st.session_state.tema_seleccionado)
+    
+    # Modo repaso: solo falladas
+    if st.session_state.modo_repaso:
+        ids_falladas = [f['id'] for f in st.session_state.preguntas_falladas]
+        lista = [p for p in lista if p['id'] in ids_falladas]
+        if not lista:
+            st.warning("⚠️ No hay preguntas falladas en este tema")
+            lista = filtrar_preguntas(st.session_state.preguntas, st.session_state.tema_seleccionado)
+    
+    return lista
 
-st.title("🏥 Cuestionario Médico Pro")
+# ============================================
+# CSS - MODO OSCURO PERFECTO
+# ============================================
+
+def aplicar_css():
+    if st.session_state.modo_oscuro:
+        st.markdown("""
+        <style>
+        /* Fondo general oscuro */
+        .stApp {
+            background-color: #0d1117;
+        }
+        
+        /* Texto claro en todo */
+        .stApp, .stMarkdown, p, h1, h2, h3, h4, h5, h6, label, .stRadio label {
+            color: #c9d1d9 !important;
+        }
+        
+        /* Contenedores */
+        .stExpander {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+        }
+        
+        /* Botones */
+        .stButton>button {
+            background-color: #238636;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+        }
+        
+        .stButton>button:hover {
+            background-color: #2ea043;
+        }
+        
+        /* Sidebar */
+        .css-1d391kg, .css-163ttbj {
+            background-color: #161b22;
+        }
+        
+        /* Radio buttons */
+        .stRadio > div {
+            background-color: #161b22;
+            padding: 1rem;
+            border-radius: 10px;
+            border: 1px solid #30363d;
+        }
+        
+        /* Correcto/Incorrecto */
+        .box-correcto {
+            background-color: #0f3d0f;
+            border-left: 5px solid #3fb950;
+            color: #aff5b4;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .box-incorrecto {
+            background-color: #3d0f0f;
+            border-left: 5px solid #f85149;
+            color: #ffdcd7;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        /* Estadísticas */
+        .stats-box {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            padding: 1rem;
+            border-radius: 10px;
+            color: #c9d1d9;
+        }
+        
+        /* Selectbox y otros inputs */
+        .stSelectbox, .stSlider {
+            background-color: #21262d;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <style>
+        .box-correcto {
+            background-color: #d4edda;
+            border-left: 5px solid #28a745;
+            color: #155724;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .box-incorrecto {
+            background-color: #f8d7da;
+            border-left: 5px solid #dc3545;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .stats-box {
+            background-color: #e7f3ff;
+            padding: 1rem;
+            border-radius: 10px;
+            border: 1px solid #b6d4fe;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+aplicar_css()
+
+# ============================================
+# INTERFAZ PRINCIPAL
+# ============================================
+
+st.title("🏥 Cuestionario Médico")
 st.markdown("---")
 
-# CARGAR DATOS desde GitHub
+# ============================================
+# CARGA DE DATOS
+# ============================================
+
 if not st.session_state.cargado:
-    with st.spinner("Cargando..."):
+    with st.spinner("📂 Cargando preguntas..."):
         try:
-            # URL raw de GitHub - CAMBIA ESTO por tu URL real
-            url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/tus_preguntas.xlsx"
+            # URL del archivo en GitHub (cambiar por tu URL)
+            URL_EXCEL = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/tus_preguntas.xlsx"
             
-            # Descargar con pandas directamente
-            df = pd.read_excel(url)
+            df = pd.read_excel(URL_EXCEL)
             df.columns = df.columns.str.strip()
-            st.session_state.preguntas = procesar_preguntas(df)
+            
+            st.session_state.preguntas = extraer_preguntas(df)
             
             if st.session_state.preguntas:
-                st.session_state.temas_disponibles = get_temas(st.session_state.preguntas)
+                st.session_state.temas_disponibles = obtener_temas(st.session_state.preguntas)
+                
+                # Intentar cargar progreso anterior
+                if cargar_progreso():
+                    st.success(f"✅ {len(st.session_state.preguntas)} preguntas cargadas + progreso recuperado")
+                else:
+                    st.success(f"✅ {len(st.session_state.preguntas)} preguntas cargadas")
+                
                 st.session_state.cargado = True
-                st.success(f"✅ {len(st.session_state.preguntas)} preguntas cargadas")
+                st.rerun()
             else:
-                st.error("❌ No se procesaron preguntas")
+                st.error("❌ No se pudieron procesar las preguntas. Verifica el formato del Excel.")
+                
         except Exception as e:
-            st.error(f"❌ Error cargando datos: {e}")
-            st.info("💡 Asegúrate de subir el archivo Excel a GitHub y actualizar la URL")
+            st.error(f"❌ Error cargando datos: {str(e)}")
+            st.info("💡 Asegúrate de que el archivo Excel esté en GitHub con acceso público")
             st.stop()
 
-# SIDEBAR
+# ============================================
+# SIDEBAR - CONFIGURACIÓN
+# ============================================
+
 with st.sidebar:
     st.header("⚙️ Configuración")
     
-    if st.session_state.cargado:
-        modo_nuevo = st.toggle("🌙 Modo Oscuro", value=st.session_state.modo_oscuro)
-        if modo_nuevo != st.session_state.modo_oscuro:
-            st.session_state.modo_oscuro = modo_nuevo
-            st.rerun()
-        
-        st.session_state.voz_activada = st.toggle("🔊 Lector de Voz", value=st.session_state.voz_activada)
-        
-        tema_nuevo = st.selectbox("📚 Tema", options=st.session_state.temas_disponibles,
-                                  index=st.session_state.temas_disponibles.index(st.session_state.tema_seleccionado))
-        if tema_nuevo != st.session_state.tema_seleccionado:
-            st.session_state.tema_seleccionado = tema_nuevo
-            st.session_state.indice = 0
-            st.session_state.respondido = False
-            st.rerun()
-        
-        st.session_state.modo_repaso = st.toggle("🎯 Modo Repaso", value=st.session_state.modo_repaso)
-        
-        st.markdown("---")
-        st.header("📊 Estadísticas")
-        total = st.session_state.correctas + st.session_state.incorrectas
-        st.markdown(f"""
-        <div class="stats-box">
-            <p>✅ Correctas: {st.session_state.correctas}</p>
-            <p>❌ Incorrectas: {st.session_state.incorrectas}</p>
-            <p>📊 Total: {total}</p>
-            <p>🎯 Precisión: {(st.session_state.correctas/total*100 if total > 0 else 0):.1f}%</p>
-            <p>📝 En repaso: {len(st.session_state.preguntas_falladas)}</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
+    # Modo oscuro
+    oscuro = st.toggle("🌙 Modo Oscuro", value=st.session_state.modo_oscuro)
+    if oscuro != st.session_state.modo_oscuro:
+        st.session_state.modo_oscuro = oscuro
+        st.rerun()
+    
+    # Voz
+    st.session_state.voz_activada = st.toggle("🔊 Voz Femenina", value=st.session_state.voz_activada)
+    
+    # Tema
+    tema_nuevo = st.selectbox(
+        "📚 Tema",
+        options=st.session_state.temas_disponibles,
+        index=st.session_state.temas_disponibles.index(st.session_state.tema_seleccionado) if st.session_state.tema_seleccionado in st.session_state.temas_disponibles else 0
+    )
+    if tema_nuevo != st.session_state.tema_seleccionado:
+        st.session_state.tema_seleccionado = tema_nuevo
+        st.session_state.indice = 0
+        st.session_state.respondido = False
+        st.session_state.mostrar_resultado = False
+        st.rerun()
+    
+    # Modo repaso
+    repaso = st.toggle("🎯 Modo Repaso (falladas)", value=st.session_state.modo_repaso)
+    if repaso != st.session_state.modo_repaso:
+        st.session_state.modo_repaso = repaso
+        st.session_state.indice = 0
+        st.session_state.respondido = False
+        st.session_state.mostrar_resultado = False
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # Estadísticas
+    st.header("📊 Estadísticas")
+    total_resp = st.session_state.correctas + st.session_state.incorrectas
+    precision = (st.session_state.correctas / total_resp * 100) if total_resp > 0 else 0
+    
+    st.markdown(f"""
+    <div class="stats-box">
+        <p>✅ <b>Correctas:</b> {st.session_state.correctas}</p>
+        <p>❌ <b>Incorrectas:</b> {st.session_state.incorrectas}</p>
+        <p>📊 <b>Total:</b> {total_resp}</p>
+        <p>🎯 <b>Precisión:</b> {precision:.1f}%</p>
+        <p>📝 <b>En repaso:</b> {len(st.session_state.preguntas_falladas)}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Botones
+    col1, col2 = st.columns(2)
+    with col1:
         if st.button("💾 Guardar"):
             guardar_progreso()
             st.success("✅ Guardado")
-        
+    with col2:
         if st.button("🔄 Reiniciar"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
 
+# ============================================
 # MOSTRAR PREGUNTAS
+# ============================================
+
 if st.session_state.cargado:
-    preguntas_filtradas = filtrar_tema(st.session_state.preguntas, st.session_state.tema_seleccionado)
+    # Preparar lista de preguntas
+    preguntas_lista = preparar_preguntas()
     
-    if st.session_state.modo_repaso and st.session_state.preguntas_falladas:
-        ids_falladas = [p['id'] for p in st.session_state.preguntas_falladas]
-        preguntas_mostrar = [p for p in preguntas_filtradas if p['id'] in ids_falladas]
-        if not preguntas_mostrar:
-            st.warning("⚠️ No hay falladas en este tema")
-            preguntas_mostrar = preguntas_filtradas
-    else:
-        preguntas_mostrar = preguntas_filtradas
+    if not preguntas_lista:
+        st.warning("⚠️ No hay preguntas disponibles")
+        st.stop()
     
+    # Barajar si es primera vez
     if st.session_state.indice == 0 and not st.session_state.respondido:
-        random.shuffle(preguntas_mostrar)
+        random.shuffle(preguntas_lista)
+        st.session_state.preguntas_filtradas = preguntas_lista
     
-    total = len(preguntas_mostrar)
+    preguntas_lista = st.session_state.preguntas_filtradas
+    total = len(preguntas_lista)
     
-    if total > 0 and st.session_state.indice < total:
-        preg = preguntas_mostrar[st.session_state.indice]
+    # Verificar si terminó
+    if st.session_state.indice >= total:
+        st.balloons()
+        st.success("🎉 ¡Felicitaciones! Has completado todas las preguntas")
         
-        # Barra de progreso
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.progress(st.session_state.indice / total)
-        with col2:
-            st.markdown(f"**{st.session_state.indice + 1}/{total}**")
+        precision_final = (st.session_state.correctas / (st.session_state.correctas + st.session_state.incorrectas) * 100) if (st.session_state.correctas + st.session_state.incorrectas) > 0 else 0
         
-        st.markdown(f"**📚 Tema:** *{preg['tema']}*")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("✅ Correctas", st.session_state.correctas)
+        col2.metric("❌ Incorrectas", st.session_state.incorrectas)
+        col3.metric("🎯 Precisión", f"{precision_final:.1f}%")
         
-        with st.expander("📋 Ver Caso Clínico", expanded=True):
-            st.markdown(preg['caso'])
-            if st.session_state.voz_activada:
-                if st.button("🔊 Escuchar", key=f"voz_{st.session_state.indice}"):
-                    leer_texto(preg['caso'])
+        if st.button("🔄 Volver a empezar", type="primary"):
+            st.session_state.indice = 0
+            st.session_state.respondido = False
+            st.session_state.mostrar_resultado = False
+            st.rerun()
         
-        st.markdown("---")
-        st.subheader("Selecciona tu respuesta:")
+        if st.button("🎯 Practicar falladas") and st.session_state.preguntas_falladas:
+            st.session_state.modo_repaso = True
+            st.session_state.indice = 0
+            st.session_state.respondido = False
+            st.session_state.mostrar_resultado = False
+            st.rerun()
         
-        opciones = [
-            f"A) {preg['opciones']['A']}",
-            f"B) {preg['opciones']['B']}",
-            f"C) {preg['opciones']['C']}",
-            f"D) {preg['opciones']['D']}"
-        ]
+        st.stop()
+    
+    # Mostrar pregunta actual
+    pregunta = preguntas_lista[st.session_state.indice]
+    
+    # Progreso
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.progress(st.session_state.indice / total)
+    with col2:
+        st.markdown(f"**{st.session_state.indice + 1} / {total}**")
+    
+    # Tema
+    st.markdown(f"**📚 Tema:** *{pregunta['tema']}*")
+    
+    # Caso clínico
+    with st.expander("📋 Leer Caso Clínico", expanded=True):
+        st.markdown(f"### {pregunta['caso']}")
+        if st.session_state.voz_activada:
+            if st.button("🔊 Escuchar caso", key=f"btn_caso_{st.session_state.indice}"):
+                hablar(pregunta['caso'])
+    
+    st.markdown("---")
+    st.subheader("📝 Selecciona tu respuesta:")
+    
+    # Opciones
+    opciones_texto = [
+        f"A) {pregunta['opciones']['A']}",
+        f"B) {pregunta['opciones']['B']}",
+        f"C) {pregunta['opciones']['C']}",
+        f"D) {pregunta['opciones']['D']}"
+    ]
+    
+    # Si no ha respondido, mostrar radio
+    if not st.session_state.respondido:
+        respuesta_seleccionada = st.radio(
+            "Elige una opción:",
+            options=opciones_texto,
+            index=None,
+            key=f"radio_{st.session_state.indice}"
+        )
         
-        respuesta = st.radio("Elige:", options=opciones, index=None, key=f"resp_{st.session_state.indice}")
-        
-        if not st.session_state.respondido:
-            if st.button("✅ Responder", type="primary"):
-                if respuesta is None:
-                    st.warning("⚠️ Selecciona una opción")
-                else:
-                    st.session_state.respondido = True
-                    seleccion = respuesta[0]
-                    
-                    if seleccion == preg['respuesta']:
-                        st.session_state.correctas += 1
-                        st.session_state.ultima_correcta = True
-                        st.session_state.preguntas_falladas = [p for p in st.session_state.preguntas_falladas if p['id'] != preg['id']]
-                    else:
-                        st.session_state.incorrectas += 1
-                        st.session_state.ultima_correcta = False
-                        if preg not in st.session_state.preguntas_falladas:
-                            st.session_state.preguntas_falladas.append(preg)
-                    
-                    st.rerun()
-        else:
-            if st.session_state.ultima_correcta:
-                st.markdown('<div class="correct"><h3>✅ ¡CORRECTO!</h3></div>', unsafe_allow_html=True)
+        if st.button("✅ Responder", type="primary", use_container_width=True):
+            if respuesta_seleccionada is None:
+                st.warning("⚠️ Por favor selecciona una respuesta")
             else:
-                st.markdown(f'<div class="incorrect"><h3>❌ Incorrecto</h3><p>Respuesta: <b>{preg["respuesta"]}</b></p></div>', unsafe_allow_html=True)
-            
-            with st.expander("📖 Ver Explicación", expanded=True):
-                st.markdown(preg['explicacion'])
+                # Procesar respuesta
+                letra_elegida = respuesta_seleccionada[0]  # A, B, C o D
+                es_correcta = letra_elegida == pregunta['respuesta_correcta']
+                
+                # Actualizar estadísticas
+                if es_correcta:
+                    st.session_state.correctas += 1
+                    # Quitar de falladas si existe
+                    st.session_state.preguntas_falladas = [
+                        f for f in st.session_state.preguntas_falladas 
+                        if f['id'] != pregunta['id']
+                    ]
+                else:
+                    st.session_state.incorrectas += 1
+                    # Agregar a falladas si no existe
+                    if not any(f['id'] == pregunta['id'] for f in st.session_state.preguntas_falladas):
+                        st.session_state.preguntas_falladas.append(pregunta)
+                
+                # Guardar estado
+                st.session_state.ultima_respuesta_correcta = es_correcta
+                st.session_state.letra_elegida = letra_elegida
+                st.session_state.respondido = True
+                
+                # Leer resultado en voz
                 if st.session_state.voz_activada:
-                    if st.button("🔊 Escuchar explicación", key=f"exp_{st.session_state.indice}"):
-                        leer_texto(preg['explicacion'])
-            
-            if st.button("➡️ Siguiente", type="primary"):
-                st.session_state.indice += 1
-                st.session_state.respondido = False
+                    mensaje_voz = "¡Correcto!" if es_correcta else f"Incorrecto. La respuesta correcta es {pregunta['respuesta_correcta']}"
+                    hablar(mensaje_voz)
+                
                 st.rerun()
     
+    # Si ya respondió, mostrar resultado
     else:
-        st.balloons()
-        st.success("🎉 ¡Completado!")
-        total = st.session_state.correctas + st.session_state.incorrectas
-        prec = (st.session_state.correctas/total*100 if total > 0 else 0)
+        es_correcta = st.session_state.ultima_respuesta_correcta
         
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("✅", st.session_state.correctas)
-        c2.metric("❌", st.session_state.incorrectas)
-        c3.metric("📊", f"{prec:.1f}%")
-        c4.metric("📝", len(st.session_state.preguntas_falladas))
+        if es_correcta:
+            st.markdown(f"""
+            <div class="box-correcto">
+                <h3>✅ ¡CORRECTO!</h3>
+                <p>Muy bien, pequeñín. Sigues así. 🌸</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="box-incorrecto">
+                <h3>❌ Incorrecto</h3>
+                <p>Tu respuesta: <b>{st.session_state.letra_elegida}</b></p>
+                <p>Respuesta correcta: <b>{pregunta['respuesta_correcta']}</b></p>
+            </div>
+            """, unsafe_allow_html=True)
         
-        if st.button("🔄 Reiniciar"):
-            st.session_state.indice = 0
-            st.session_state.correctas = 0
-            st.session_state.incorrectas = 0
+        # Explicación
+        with st.expander("📖 Ver Explicación", expanded=True):
+            st.markdown(pregunta['explicacion'])
+            if st.session_state.voz_activada:
+                if st.button("🔊 Escuchar explicación", key=f"btn_exp_{st.session_state.indice}"):
+                    hablar(pregunta['explicacion'])
+        
+        # Botón siguiente
+        if st.button("➡️ Siguiente pregunta", type="primary", use_container_width=True):
+            st.session_state.indice += 1
             st.session_state.respondido = False
+            st.session_state.mostrar_resultado = False
             st.rerun()
 
 st.markdown("---")
-st.markdown("*🏥 Cuestionario Médico Pro*")
+st.markdown("*🏥 Cuestionario Médico - Hecho con 💕 para ti, pequeñín*")
