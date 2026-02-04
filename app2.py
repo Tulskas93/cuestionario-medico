@@ -4,7 +4,7 @@ import random
 import re
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Configuración de la página
 st.set_page_config(
@@ -25,8 +25,6 @@ if 'preguntas' not in st.session_state:
     st.session_state.tema_seleccionado = "Todos"
     st.session_state.modo_repaso = False
     st.session_state.preguntas_falladas = []
-    st.session_state.tiempo_inicio = None
-    st.session_state.tiempo_pregunta = 30
     st.session_state.modo_oscuro = False
     st.session_state.voz_activada = False
 
@@ -52,9 +50,6 @@ def guardar_progreso():
     }
     with open(PROGRESO_FILE, 'w') as f:
         json.dump(progreso, f)
-
-def formatear_tiempo(segundos):
-    return f"{int(max(0, segundos))//60:02d}:{int(max(0, segundos))%60:02d}"
 
 def leer_texto(texto):
     if st.session_state.voz_activada:
@@ -128,8 +123,6 @@ if st.session_state.modo_oscuro:
     .correct { background-color: #1e4620; color: #fafafa; padding: 1rem; border-radius: 10px; border-left: 5px solid #4caf50; }
     .incorrect { background-color: #4a1c1c; color: #fafafa; padding: 1rem; border-radius: 10px; border-left: 5px solid #f44336; }
     .stats-box { background-color: #262730; color: #fafafa; padding: 1rem; border-radius: 10px; }
-    .timer-box { background-color: #3498db; color: white; padding: 0.5rem; border-radius: 5px; text-align: center; font-size: 1.2em; font-weight: bold; }
-    .timer-warning { background-color: #e74c3c; }
     h1, h2, h3, p, label { color: #fafafa !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -139,8 +132,6 @@ else:
     .correct { background-color: #d4edda; padding: 1rem; border-radius: 10px; border-left: 5px solid #28a745; }
     .incorrect { background-color: #f8d7da; padding: 1rem; border-radius: 10px; border-left: 5px solid #dc3545; }
     .stats-box { background-color: #e3f2fd; padding: 1rem; border-radius: 10px; }
-    .timer-box { background-color: #3498db; color: white; padding: 0.5rem; border-radius: 5px; text-align: center; font-size: 1.2em; font-weight: bold; }
-    .timer-warning { background-color: #e74c3c; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -180,7 +171,6 @@ with st.sidebar:
     st.header("⚙️ Configuración")
     
     if st.session_state.cargado:
-        # Modo oscuro
         modo_nuevo = st.toggle("🌙 Modo Oscuro", value=st.session_state.modo_oscuro)
         if modo_nuevo != st.session_state.modo_oscuro:
             st.session_state.modo_oscuro = modo_nuevo
@@ -197,7 +187,6 @@ with st.sidebar:
             st.rerun()
         
         st.session_state.modo_repaso = st.toggle("🎯 Modo Repaso", value=st.session_state.modo_repaso)
-        st.session_state.tiempo_pregunta = st.slider("⏱️ Tiempo (seg)", 10, 120, 30)
         
         st.markdown("---")
         st.header("📊 Estadísticas")
@@ -242,37 +231,6 @@ if st.session_state.cargado:
     if total > 0 and st.session_state.indice < total:
         preg = preguntas_mostrar[st.session_state.indice]
         
-        # Iniciar tiempo
-        if st.session_state.tiempo_inicio is None:
-            st.session_state.tiempo_inicio = time.time()
-        
-        # Calcular tiempo (solo una vez por render)
-        tiempo_transcurrido = time.time() - st.session_state.tiempo_inicio
-        tiempo_restante = max(0, st.session_state.tiempo_pregunta - tiempo_transcurrido)
-        
-        # SOLO UN RELOJ
-        timer_class = "timer-box timer-warning" if tiempo_restante < 10 else "timer-box"
-        st.markdown(f'<div class="{timer_class}">⏱️ {formatear_tiempo(tiempo_restante)}</div>', unsafe_allow_html=True)
-        
-        # Auto-refresh cada 1 segundo usando JavaScript (mejor que time.sleep)
-        if not st.session_state.respondido and tiempo_restante > 0:
-            st.markdown("""
-            <script>
-            setTimeout(function() {
-                window.location.reload();
-            }, 1000);
-            </script>
-            """, unsafe_allow_html=True)
-        
-        # Verificar tiempo agotado
-        if tiempo_restante <= 0 and not st.session_state.respondido:
-            st.error("⏰ ¡Tiempo agotado!")
-            st.session_state.respondido = True
-            st.session_state.incorrectas += 1
-            if preg not in st.session_state.preguntas_falladas:
-                st.session_state.preguntas_falladas.append(preg)
-            st.rerun()
-        
         # Barra de progreso
         col1, col2 = st.columns([3, 1])
         with col1:
@@ -283,7 +241,7 @@ if st.session_state.cargado:
         # TEMA
         st.markdown(f"**📚 Tema:** *{preg['tema']}*")
         
-        # CASO CLÍNICO - AQUÍ ESTÁ EL TEXTO
+        # CASO CLÍNICO
         with st.expander("📋 Ver Caso Clínico", expanded=True):
             st.markdown(preg['caso'])
             if st.session_state.voz_activada:
@@ -338,7 +296,6 @@ if st.session_state.cargado:
             if st.button("➡️ Siguiente", type="primary"):
                 st.session_state.indice += 1
                 st.session_state.respondido = False
-                st.session_state.tiempo_inicio = None
                 st.rerun()
     
     else:
@@ -359,7 +316,6 @@ if st.session_state.cargado:
             st.session_state.correctas = 0
             st.session_state.incorrectas = 0
             st.session_state.respondido = False
-            st.session_state.tiempo_inicio = None
             st.rerun()
 
 st.markdown("---")
