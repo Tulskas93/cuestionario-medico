@@ -2,95 +2,140 @@ import streamlit as st
 import pandas as pd
 import random
 
-# --- CONFIGURACIÓN DE PÁGINA Y ESTILO "LUNA" ---
-st.set_page_config(page_title="Simulacro Médico UdeA", page_icon="🌙")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Simulacro Médico UdeA 🌙", page_icon="🩺", layout="centered")
 
+# Estilo visual "Camino de la Luna" (Oscuro y elegante)
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; color: #e0e0e0; }
-    .stButton>button { width: 100%; border-radius: 20px; border: 1px solid #4b0082; }
-    .stProgress > div > div > div > div { background-color: #4b0082; }
+    .stApp { background-color: #0e1117; color: #e0e0e0; }
+    .stButton>button { width: 100%; border-radius: 10px; border: 1px solid #4b0082; background-color: #1e1e2e; color: white; }
+    .stButton>button:hover { border-color: #9370db; color: #9370db; }
+    .stRadio > label { color: #9370db !important; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CARGA DE DATOS ---
+# --- CARGA DE DATOS SEGURA ---
 @st.cache_data
 def cargar_datos():
-    # Asegúrate de que el CSV esté en la misma carpeta o usa la URL raw de GitHub
+    # URL RAW para evitar errores de HTTP
     url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/preguntas_medicina.csv"
-    return pd.read_csv(url)
+    try:
+        df = pd.read_csv(url)
+        # Limpiar espacios en blanco en los nombres de las columnas
+        df.columns = df.columns.str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Error al conectar con la base de datos de la Luna: {e}")
+        # Intento de respaldo local
+        try:
+            return pd.read_csv("preguntas_medicina.csv")
+        except:
+            return pd.DataFrame()
 
 df = cargar_datos()
 
-# --- INICIALIZACIÓN DE ESTADO ---
+# --- INICIALIZACIÓN DEL ESTADO (MEMORIA) ---
 if 'preguntas_falladas' not in st.session_state:
-    st.session_state.preguntas_falladas = {} # {índice: conteo_fallos}
-if 'historial_simulacro' not in st.session_state:
-    st.session_state.historial_simulacro = []
+    st.session_state.preguntas_falladas = {}
+if 'indice_actual' not in st.session_state:
+    st.session_state.indice_actual = 0
+if 'aciertos' not in st.session_state:
+    st.session_state.aciertos = 0
+if 'lista_preguntas' not in st.session_state:
+    st.session_state.lista_preguntas = pd.DataFrame()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (PANEL DE CONTROL) ---
 st.sidebar.title("🌙 Menú de Secuencia")
-modo = st.sidebar.radio("Selecciona Modo:", ["Práctica Libre", "Simulacro UdeA", "Repetición Espaciada"])
-categoria = st.sidebar.selectbox("Categoría:", ["Todas"] + list(df['Categoría'].unique()))
+st.sidebar.write(f"Bienvenido, Onii-san. Eres un **Vampiro** del conocimiento.")
 
-# --- LÓGICA DE FILTRADO ---
-def obtener_preguntas():
+modo = st.sidebar.radio("Selecciona tu entrenamiento:", 
+                        ["Práctica Libre", "Simulacro UdeA", "Repetición Espaciada"])
+
+categorias_disponibles = ["Todas"] + list(df['Categoría'].unique()) if not df.empty else ["N/A"]
+categoria = st.sidebar.selectbox("Enfocar en:", categorias_disponibles)
+
+# Lógica para generar la lista de preguntas
+if st.sidebar.button("Generar Nuevo Cuestionario") or st.session_state.lista_preguntas.empty:
     temp_df = df if categoria == "Todas" else df[df['Categoría'] == categoria]
     
     if modo == "Repetición Espaciada":
-        # Priorizar preguntas con más fallos en el historial
-        indices_fallados = list(st.session_state.preguntas_falladas.keys())
-        if indices_fallados:
-            return temp_df.iloc[indices_fallados].sample(frac=1)
+        indices_frecuentes = list(st.session_state.preguntas_falladas.keys())
+        if indices_frecuentes:
+            # Mezclamos preguntas falladas con algunas nuevas
+            falladas = df.loc[indices_frecuentes]
+            nuevas = df.drop(indices_frecuentes).sample(n=min(5, len(df)-len(falladas)))
+            st.session_state.lista_preguntas = pd.concat([falladas, nuevas]).sample(frac=1)
+        else:
+            st.session_state.lista_preguntas = temp_df.sample(frac=1)
     
-    if modo == "Simulacro UdeA":
-        return temp_df.sample(n=min(20, len(temp_df))) # Simulacro de 20 preguntas
+    elif modo == "Simulacro UdeA":
+        # El examen de la UdeA es serio, tomamos 20 aleatorias
+        st.session_state.lista_preguntas = temp_df.sample(n=min(20, len(temp_df)))
     
-    return temp_df.sample(frac=1)
-
-# --- INTERFAZ DE CUESTIONARIO ---
-st.title(f"✨ Modo {modo}")
-
-if 'lista_preguntas' not in st.session_state or st.sidebar.button("Reiniciar Cuestionario"):
-    st.session_state.lista_preguntas = obtener_preguntas()
+    else: # Práctica Libre
+        st.session_state.lista_preguntas = temp_df.sample(frac=1)
+    
     st.session_state.indice_actual = 0
     st.session_state.aciertos = 0
-    st.session_state.respuestas_simulacro = []
+    st.rerun()
 
-if st.session_state.indice_actual < len(st.session_state.lista_preguntas):
+# --- CUERPO DEL CUESTIONARIO ---
+st.title("🩺 Academia Médica Nocturna")
+
+if not st.session_state.lista_preguntas.empty and st.session_state.indice_actual < len(st.session_state.lista_preguntas):
+    
     pregunta_actual = st.session_state.lista_preguntas.iloc[st.session_state.indice_actual]
     
-    st.write(f"**Pregunta {st.session_state.indice_actual + 1}:**")
+    # Progreso
+    progreso = (st.session_state.indice_actual) / len(st.session_state.lista_preguntas)
+    st.progress(progreso)
+    st.write(f"Pregunta {st.session_state.indice_actual + 1} de {len(st.session_state.lista_preguntas)}")
+
+    # Mostrar Pregunta
     st.subheader(pregunta_actual['Pregunta'])
     
     opciones = [pregunta_actual['Opción A'], pregunta_actual['Opción B'], 
                 pregunta_actual['Opción C'], pregunta_actual['Opción D']]
     
-    seleccion = st.radio("Elige tu respuesta:", opciones, key=f"p_{st.session_state.indice_actual}")
+    seleccion = st.radio("Elige la cura correcta:", opciones, key=f"q_{st.session_state.indice_actual}")
 
-    if st.button("Siguiente Pregunta ➡️"):
-        es_correcta = (seleccion == pregunta_actual['Respuesta Correcta'])
-        
-        # Guardar si falló para Repetición Espaciada
+    if st.button("Confirmar Respuesta ➡️"):
+        correcta = pregunta_actual['Respuesta Correcta']
         idx_original = pregunta_actual.name
-        if not es_correcta:
+        
+        if seleccion == correcta:
+            st.session_state.aciertos += 1
+            if modo != "Simulacro UdeA":
+                st.success("¡Excelente diagnóstico, Onii-san! ✨")
+        else:
+            # Guardar para repetición espaciada
             st.session_state.preguntas_falladas[idx_original] = st.session_state.preguntas_falladas.get(idx_original, 0) + 1
+            if modo != "Simulacro UdeA":
+                st.error(f"Incorrecto. La respuesta era: {correcta}")
+                if 'Explicación' in pregunta_actual:
+                    st.info(f"💡 **Explicación:** {pregunta_actual['Explicación']}")
         
-        if modo == "Práctica Libre":
-            if es_correcta:
-                st.success("¡Correcto, Onii-san! ✨")
-            else:
-                st.error(f"Oh no... La respuesta era: {pregunta_actual['Respuesta Correcta']}")
-                st.info(f"Nota: {pregunta_actual['Explicación']}")
-        
-        if es_correcta: st.session_state.aciertos += 1
         st.session_state.indice_actual += 1
         st.rerun()
 
-else:
+elif not st.session_state.lista_preguntas.empty:
     st.balloons()
-    st.header("¡Cuestionario Finalizado!")
-    st.metric("Puntaje Final", f"{st.session_state.aciertos}/{len(st.session_state.lista_preguntas)}")
-    if st.button("Volver a empezar"):
+    st.header("¡Misión Cumplida, Onii-san! 🦇")
+    score = st.session_state.aciertos
+    total = len(st.session_state.lista_preguntas)
+    porcentaje = (score/total)*100
+    
+    st.metric("Puntaje Final", f"{score}/{total}", f"{porcentaje:.1f}%")
+    
+    if porcentaje >= 80:
+        st.write("🔥 ¡Estás listo para la UdeA! Tu secuencia está aumentando.")
+    else:
+        st.write("Aún falta digerir un poco más la poción. ¡Sigue practicando!")
+        
+    if st.button("Empezar nueva ronda"):
         st.session_state.indice_actual = 0
+        st.session_state.lista_preguntas = pd.DataFrame()
         st.rerun()
+else:
+    st.warning("No se encontraron preguntas. Por favor, revisa el archivo CSV o selecciona otra categoría.")
