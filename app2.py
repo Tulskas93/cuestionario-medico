@@ -1,8 +1,14 @@
+¡Aquí tienes el código completo y blindado, onii-chan! He corregido el error de la librería os, el fallo de getlogin y he pulido la lógica de carga para que el "Save Game" de tu residencia no se rompa.
+
+Recuerda que para que este código funcione al 100% en Streamlit Cloud, debes tener el archivo requirements.txt en tu GitHub con: streamlit, pandas, plotly y openpyxl.
+
+app2.py — Versión Final "UdeA Resident Mastery"
+Python
 import streamlit as st
 import pandas as pd
 import random
-import time
 import plotly.express as px
+import os
 
 # --- CONFIGURACIÓN DE LA INTERFAZ ---
 st.set_page_config(
@@ -12,18 +18,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilo personalizado (CSS)
+# Estilo personalizado (CSS) para ese feeling Médico-Gamer
 st.markdown("""
     <style>
     .main { background-color: #0e1117; color: #ffffff; }
-    .stButton>button { width: 100%; border-radius: 10px; height: 3em; background-color: #2e7bcf; color: white; border: none; }
-    .stButton>button:hover { background-color: #1e5faf; border: 1px solid #ffffff; }
-    .question-box { background-color: #1e2130; padding: 25px; border-radius: 15px; border-left: 5px solid #00d4ff; margin-bottom: 20px; }
-    .stat-card { background-color: #262730; padding: 15px; border-radius: 10px; text-align: center; }
+    .stButton>button { width: 100%; border-radius: 10px; height: 3.5em; background-color: #2e7bcf; color: white; font-weight: bold; border: none; }
+    .stButton>button:hover { background-color: #1e5faf; border: 1px solid #00d4ff; }
+    .question-box { background-color: #1e2130; padding: 30px; border-radius: 15px; border-left: 8px solid #00d4ff; margin-bottom: 25px; box-shadow: 5px 5px 15px rgba(0,0,0,0.3); }
+    .retro-box { background-color: #162e24; padding: 20px; border-radius: 10px; border: 1px solid #2ecc71; margin-top: 20px; }
+    .stat-card { background-color: #262730; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #444; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- LÓGICA DE DATOS ---
+# --- CARGA DE DATOS ---
 URL_EXCEL = "https://github.com/Tulskas93/cuestionario-medico/raw/refs/heads/main/tus_preguntas.xlsx"
 
 @st.cache_data(ttl=300)
@@ -31,35 +38,37 @@ def load_data():
     try:
         df = pd.read_excel(URL_EXCEL)
         df.columns = [c.strip() for c in df.columns]
-        # Crear ID único basado en el contenido para persistencia de sesión
-        df['id_p'] = df['Pregunta'].apply(hash)
+        # Generar un ID basado en la pregunta para persistencia
+        df['id_p'] = df['Pregunta'].apply(lambda x: hash(str(x)))
         return df
     except Exception as e:
-        st.error(f"⚠️ Error al conectar con la base de datos médica: {e}")
+        st.error(f"❌ Error al conectar con el servidor de datos: {e}")
         return None
 
-# --- INICIALIZACIÓN DE ESTADO (EL SAVE GAME) ---
+# --- INICIALIZACIÓN DEL ESTADO ---
 if 'history' not in st.session_state:
-    st.session_state.history = {} # {id_p: {'score': 0, 'hits': 0, 'total': 0}}
+    st.session_state.history = {} # {id_p: {'score': 0, 'tries': 0}}
 if 'current_idx' not in st.session_state:
     st.session_state.current_idx = None
 if 'view' not in st.session_state:
     st.session_state.view = "pregunta"
 
-# --- FUNCIONES CORE ---
+# --- LÓGICA DE SELECCIÓN (SPACED REPETITION) ---
 def get_next_question(df_pool, mode):
     if df_pool.empty: return None
     
     if mode == "Repetición Espaciada (SR)":
-        # Priorizar preguntas con menos 'hits' o menor score en el historial
-        ids_vistos = list(st.session_state.history.keys())
-        # Simplificación: 40% probabilidad de ir a una fallada antes que una nueva
-        if ids_vistos and random.random() < 0.4:
-            fail_pool = [id for id in ids_vistos if st.session_state.history[id]['score'] < 2]
-            if fail_pool:
-                chosen_id = random.choice(fail_pool)
-                return df_pool[df_pool['id_p'] == chosen_id].index[0]
+        # Priorizar preguntas con score bajo (0 o 1)
+        vistas = list(st.session_state.history.keys())
+        pendientes = [id for id in vistas if st.session_state.history[id]['score'] < 2]
         
+        # 50% de probabilidad de repetir una fallada si existen
+        if pendientes and random.random() < 0.5:
+            chosen_id = random.choice(pendientes)
+            match = df_pool[df_pool['id_p'] == chosen_id]
+            if not match.empty:
+                return match.index[0]
+                
     return random.choice(df_pool.index)
 
 # --- UI PRINCIPAL ---
@@ -67,98 +76,107 @@ def main():
     df = load_data()
     if df is None: return
 
-    # --- SIDEBAR (PANEL DE CONTROL) ---
+    # --- SIDEBAR ---
     with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b5/Escudo_UdeA.svg", width=100)
-        st.title("Med-Trainer v2.0")
-        st.write(f"🩺 **Dr. {os.getlogin() if hasattr(os, 'getlogin') else 'Onii-chan'}**")
+        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b5/Escudo_UdeA.svg", width=80)
+        st.title("Med-Trainer v2.1")
+        
+        # Fix del error os.getlogin()
+        user = os.environ.get('USER', os.environ.get('USERNAME', 'Onii-chan'))
+        st.write(f"🩺 **Dr. {user}**")
         st.divider()
         
-        modo = st.selectbox("🎯 MODO DE JUEGO", ["Libre (Random)", "Repetición Espaciada (SR)", "Simulacro UdeA"])
-        especialidades = st.multiselect("📚 FILTRAR ÁREA", options=df['Especialidad'].unique())
+        modo = st.selectbox("🎮 MODO DE ESTUDIO", ["Repetición Espaciada (SR)", "Libre (Random)"])
+        especialidades = st.multiselect("📚 ESPECIALIDAD", options=sorted(df['Especialidad'].unique()))
         
         st.divider()
-        if st.button("🗑️ Resetear Progreso"):
+        if st.button("🔄 Resetear Todo el Progreso"):
             st.session_state.history = {}
+            st.session_state.current_idx = None
             st.rerun()
 
-    # --- FILTRADO ---
+    # Filtrado dinámico
     df_filtered = df.copy()
     if especialidades:
         df_filtered = df_filtered[df_filtered['Especialidad'].isin(especialidades)]
 
-    # Seleccionar primera pregunta
-    if st.session_state.current_idx is None:
+    if df_filtered.empty:
+        st.warning("No hay preguntas que coincidan con los filtros. Selecciona otra especialidad.")
+        return
+
+    # Selección inicial
+    if st.session_state.current_idx is None or st.session_state.current_idx not in df_filtered.index:
         st.session_state.current_idx = get_next_question(df_filtered, modo)
 
-    # --- DASHBOARD DE PROGRESO (SUPERIOR) ---
+    # --- DASHBOARD DE MÉTRICAS ---
     col_a, col_b, col_c = st.columns(3)
     total_vistas = len(st.session_state.history)
-    exitos = sum(1 for x in st.session_state.history.values() if x['score'] > 0)
+    dominadas = sum(1 for x in st.session_state.history.values() if x['score'] >= 3)
     
     with col_a:
-        st.metric("Preguntas Dominadas", f"{exitos}/{len(df)}")
+        st.metric("Dominadas (Master)", f"{dominadas}/{len(df)}")
     with col_b:
-        accuracy = (exitos/total_vistas*100) if total_vistas > 0 else 0
-        st.metric("Precisión (Accuracy)", f"{accuracy:.1f}%")
+        acc = (dominadas/total_vistas*100) if total_vistas > 0 else 0
+        st.metric("Precisión Clínica", f"{acc:.1f}%")
     with col_c:
-        st.metric("Nivel (XP)", total_vistas * 10)
+        st.metric("Nivel de XP", total_vistas * 25)
 
     st.divider()
 
-    # --- ÁREA DE ESTUDIO ---
-    if st.session_state.current_idx is not None:
-        q = df.loc[st.session_state.current_idx]
-        
-        st.markdown(f"### 📍 {q['Especialidad']} > {q['Tema']}")
-        
-        with st.container():
-            st.markdown(f"""<div class="question-box"><h4>{q['Pregunta']}</h4></div>""", unsafe_allow_html=True)
-            
-            if st.session_state.view == "pregunta":
-                if st.button("REVELAR RESPUESTA (SPACE)"):
-                    st.session_state.view = "retro"
-                    st.rerun()
-            
-            else:
-                st.success(f"✅ **RESPUESTA CORRECTA:** {q['Respuesta correcta']}")
-                with st.expander("📖 VER ANÁLISIS CLÍNICO (RETROALIMENTACIÓN)", expanded=True):
-                    st.write(q['Retroalimentación'])
-                
-                st.divider()
-                st.write("¿Cómo estuvo tu desempeño?")
-                c1, c2, c3, c4 = st.columns(4)
-                
-                id_p = q['id_p']
-                if id_p not in st.session_state.history:
-                    st.session_state.history[id_p] = {'score': 0, 'count': 0}
-                
-                def update_and_next(score):
-                    st.session_state.history[id_p]['score'] = score
-                    st.session_state.history[id_p]['count'] += 1
-                    st.session_state.current_idx = get_next_question(df_filtered, modo)
-                    st.session_state.view = "pregunta"
-                    st.rerun()
+    # --- INTERFAZ DE PREGUNTA ---
+    q = df.loc[st.session_state.current_idx]
+    
+    st.markdown(f"#### 📍 {q['Especialidad']} | Tema: {q['Tema']}")
+    
+    st.markdown(f"""<div class="question-box"><h3>{q['Pregunta']}</h3></div>""", unsafe_allow_html=True)
 
-                if c1.button("🟢 FÁCIL (Master)"): update_and_next(3)
-                if c2.button("🟡 BIEN (Repasar)"): update_and_next(2)
-                if c3.button("🟠 DIFÍCIL (Urgente)"): update_and_next(1)
-                if c4.button("🔴 NPI (Muerte)"): update_and_next(0)
+    if st.session_state.view == "pregunta":
+        if st.button("REVELAR RESPUESTA Y ANÁLISIS 🔓"):
+            st.session_state.view = "retro"
+            st.rerun()
+    else:
+        # Mostrar Retroalimentación
+        st.markdown(f"""<div class="retro-box">
+            <h4 style='color: #2ecc71;'>✅ Respuesta Correcta: {q['Respuesta correcta']}</h4>
+            <hr>
+            <p style='font-size: 1.1em;'>{q['Retroalimentación']}</p>
+        </div>""", unsafe_allow_html=True)
+        
+        st.divider()
+        st.write("### ¿Cómo estuvo tu desempeño en esta pregunta?")
+        c1, c2, c3, c4 = st.columns(4)
+        
+        id_p = q['id_p']
+        if id_p not in st.session_state.history:
+            st.session_state.history[id_p] = {'score': 0, 'count': 0}
 
-    # --- GRÁFICO DE RENDIMIENTO (INFERIOR) ---
+        def next_step(score):
+            st.session_state.history[id_p]['score'] = score
+            st.session_state.history[id_p]['count'] += 1
+            st.session_state.current_idx = get_next_question(df_filtered, modo)
+            st.session_state.view = "pregunta"
+            st.rerun()
+
+        if c1.button("🟢 FÁCIL (Dominado)"): next_step(4)
+        if c2.button("🟡 BIEN (Repasar)"): next_step(2)
+        if c3.button("🟠 DIFÍCIL (Mañana)"): next_step(1)
+        if c4.button("🔴 NPI (Muerte)"): next_step(0)
+
+    # --- ANALÍTICAS ---
     if st.session_state.history:
         st.divider()
-        st.subheader("📊 Análisis de Especialidades")
-        stats_data = []
+        st.subheader("📊 Dominio por Especialidad")
+        stats = []
         for id_p, data in st.session_state.history.items():
-            row = df[df['id_p'] == id_p].iloc[0]
-            stats_data.append({'Especialidad': row['Especialidad'], 'Score': data['score']})
+            row = df[df['id_p'] == id_p]
+            if not row.empty:
+                stats.append({'Especialidad': row.iloc[0]['Especialidad'], 'Score': data['score']})
         
-        df_stats = pd.DataFrame(stats_data)
-        fig = px.bar(df_stats.groupby('Especialidad').mean().reset_index(), 
-                     x='Especialidad', y='Score', color='Score', 
-                     range_y=[0,3], title="Dominio por Área")
-        st.plotly_chart(fig, use_container_width=True)
+        if stats:
+            df_stats = pd.DataFrame(stats).groupby('Especialidad')['Score'].mean().reset_index()
+            fig = px.bar(df_stats, x='Especialidad', y='Score', color='Score', 
+                         color_continuous_scale='Viridis', range_y=[0,4])
+            st.plotly_chart(fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
