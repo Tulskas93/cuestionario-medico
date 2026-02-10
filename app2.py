@@ -5,17 +5,30 @@ import plotly.express as px
 import os
 import re
 
-# --- CONFIGURACIÓN DE ESCENA ---
-st.set_page_config(page_title="UdeA Resident Mastery v3.0", page_icon="💊", layout="wide")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="UdeA Mastery Pro", page_icon="🏥", layout="wide")
 
-# CSS para estilo "Misión Médica"
+# --- CSS: INTERFAZ LIMPIA Y LEGIBLE ---
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
-    .question-box { background-color: #1e2130; padding: 25px; border-radius: 15px; border-left: 8px solid #00d4ff; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-    .stRadio > label { font-size: 1.1rem !important; color: #00d4ff !important; font-weight: bold; }
-    .retro-box { padding: 20px; border-radius: 10px; margin-top: 15px; border: 1px solid #444; }
-    .stat-card { background-color: #161b22; padding: 10px; border-radius: 8px; border: 1px solid #30363d; text-align: center; }
+    .stApp { background-color: #f0f2f6; }
+    .main-card {
+        background-color: #ffffff;
+        padding: 30px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        color: #1a1a1a;
+        margin-bottom: 25px;
+        border-left: 10px solid #1f77b4;
+    }
+    .question-text {
+        font-size: 1.4rem;
+        font-weight: 600;
+        color: #2c3e50;
+    }
+    .stRadio > label { font-size: 1.1rem !important; color: #34495e !important; font-weight: 500; }
+    /* Fix para asegurar que el texto sea negro y no herede gris oscuro */
+    p, span, label { color: #1a1a1a !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -29,114 +42,115 @@ def load_data():
         df['id_p'] = range(len(df))
         return df
     except Exception as e:
-        st.error(f"Error de conexión con el Excel: {e}")
+        st.error(f"Error al cargar datos del repositorio: {e}")
         return None
 
-# --- PARSER DE PREGUNTAS (Separa texto de opciones A, B, C, D) ---
 def parse_question(text):
     text = str(text)
-    # Divide por saltos de línea que empiecen con A), B), A., B. o espacios seguidos de la letra
+    # Detecta saltos de línea o espacios que preceden a A), B), C)...
     parts = re.split(r'\s*\n?\s*(?=[A-E][\).])', text)
     enunciado = parts[0]
     opciones = [p.strip() for p in parts[1:] if p.strip()]
     return enunciado, opciones
 
-# --- ESTADO DE LA SESIÓN ---
-if 'history' not in st.session_state: st.session_state.history = {} 
+# --- ESTADO DE LA SESIÓN (PERSISTENCIA) ---
+if 'history' not in st.session_state: st.session_state.history = {}
 if 'current_idx' not in st.session_state: st.session_state.current_idx = None
 if 'answered' not in st.session_state: st.session_state.answered = False
-if 'last_result' not in st.session_state: st.session_state.last_result = None
+if 'exam_mode' not in st.session_state: st.session_state.exam_mode = False
+if 'exam_questions' not in st.session_state: st.session_state.exam_questions = []
 
 def main():
     df = load_data()
     if df is None: return
 
-    # --- SIDEBAR: ESTADÍSTICAS ---
+    # --- SIDEBAR ---
     with st.sidebar:
-        st.title("👨‍⚕️ Dr. Master")
-        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b5/Escudo_UdeA.svg", width=100)
+        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b5/Escudo_UdeA.svg", width=120)
+        st.title("Med-Trainer UdeA")
+        modo = st.selectbox("Elegir Modo:", ["Repetición Espaciada", "Random", "Examen UdeA (Simulacro)"])
+        
         st.divider()
-        
-        modo = st.radio("Modo de Juego:", ["Repetición Espaciada", "Random Total"])
-        
-        # Mini Dashboard
-        total = len(df)
-        vistas = len(st.session_state.history)
-        st.markdown(f"""
-        <div class="stat-card">
-            <small>Progreso Total</small><h3>{vistas}/{total}</h3>
-            <small>XP Ganada</small><h4 style="color:#00d4ff;">{vistas * 100}</h4>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        if st.button("🗑 Resetear Datos"):
-            st.session_state.history = {}
-            st.session_state.current_idx = None
+        if st.button("Resetear Progreso"):
+            st.session_state.clear()
             st.rerun()
 
-    # --- LÓGICA DE SELECCIÓN ---
+    # --- MODO EXAMEN UdeA ---
+    if modo == "Examen UdeA (Simulacro)":
+        st.header("⏱️ Simulacro Real UdeA")
+        if not st.session_state.exam_questions:
+            if st.button("Comenzar Examen (10 preguntas)"):
+                st.session_state.exam_questions = df.sample(10).to_dict('records')
+                st.session_state.exam_idx = 0
+                st.session_state.exam_answers = []
+                st.rerun()
+            return
+
+        idx = st.session_state.exam_idx
+        if idx < len(st.session_state.exam_questions):
+            q = st.session_state.exam_questions[idx]
+            enunciado, opciones = parse_question(q['Pregunta'])
+            
+            st.progress((idx) / 10)
+            st.markdown(f'<div class="main-card"><p class="question-text">{enunciado}</p></div>', unsafe_allow_html=True)
+            
+            sel = st.radio(f"Pregunta {idx+1} de 10:", opciones, key=f"ex_{idx}", index=None)
+            
+            if st.button("Siguiente ➡️"):
+                if sel:
+                    st.session_state.exam_answers.append({'sel': sel[0].upper(), 'correcta': str(q['Respuesta']).strip().upper()})
+                    st.session_state.exam_idx += 1
+                    st.rerun()
+                else: st.warning("Selecciona una opción")
+        else:
+            # Resultados del Examen
+            aciertos = sum(1 for a in st.session_state.exam_answers if a['sel'] == a['correcta'])
+            st.balloons()
+            st.markdown(f'<div class="main-card"><h2>Resultado: {aciertos}/10</h2></div>', unsafe_allow_html=True)
+            if st.button("Finalizar y volver"):
+                st.session_state.exam_questions = []
+                st.rerun()
+        return
+
+    # --- MODOS DE REPASO (SR / RANDOM) ---
     if st.session_state.current_idx is None:
         if modo == "Repetición Espaciada" and st.session_state.history:
-            # Prioriza las que tienen score 0 (falladas)
             falladas = [id for id, data in st.session_state.history.items() if data['score'] == 0]
-            if falladas and random.random() < 0.6: # 60% probabilidad de repetir fallada
+            if falladas and random.random() < 0.5:
                 st.session_state.current_idx = random.choice(falladas)
-            else:
-                st.session_state.current_idx = random.randint(0, len(df)-1)
-        else:
-            st.session_state.current_idx = random.randint(0, len(df)-1)
+            else: st.session_state.current_idx = random.randint(0, len(df)-1)
+        else: st.session_state.current_idx = random.randint(0, len(df)-1)
 
-    q_data = df.iloc[st.session_state.current_idx]
-    enunciado, opciones = parse_question(q_data['Pregunta'])
+    q = df.iloc[st.session_state.current_idx]
+    enunciado, opciones = parse_question(q['Pregunta'])
 
-    # --- INTERFAZ PRINCIPAL ---
-    st.markdown(f'<div class="question-box"><h4>{enunciado}</h4></div>', unsafe_allow_html=True)
+    # Métricas
+    c1, c2 = st.columns(2)
+    c1.metric("Preguntas en Memoria", len(st.session_state.history))
+    c2.metric("Puntos XP", len(st.session_state.history) * 10)
 
-    # Formulario de Respuesta
-    with st.container():
-        if not st.session_state.answered:
-            if opciones:
-                seleccion = st.radio("Selecciona la opción correcta:", opciones, index=None, key=f"q_{st.session_state.current_idx}")
-                if st.button("Confirmar Diagnóstico 🛡️"):
-                    if seleccion:
-                        letra_sel = seleccion[0].upper()
-                        correcta = str(q_data['Respuesta']).strip().upper()
-                        
-                        st.session_state.answered = True
-                        if letra_sel == correcta:
-                            st.session_state.last_result = ("success", "✅ ¡EXCELENTE DOCTOR! Respuesta correcta.")
-                            st.session_state.history[st.session_state.current_idx] = {'score': 1}
-                        else:
-                            st.session_state.last_result = ("error", f"❌ ERROR CLÍNICO. La respuesta era {correcta}")
-                            st.session_state.history[st.session_state.current_idx] = {'score': 0}
-                        st.rerun()
-            else:
-                st.warning("Formato de opciones no detectado en esta celda.")
-        
-        else:
-            # Mostrar Resultado y Retroalimentación
-            tipo, msg = st.session_state.last_result
-            if tipo == "success": st.success(msg)
-            else: st.error(msg)
+    st.markdown(f'<div class="main-card"><p class="question-text">{enunciado}</p></div>', unsafe_allow_html=True)
 
-            st.markdown(f"""<div class="retro-box">
-                <strong>Análisis de la Pregunta:</strong><br>{q_data['Retroalimentación']}
-            </div>""", unsafe_allow_html=True)
-
-            if st.button("Siguiente Paciente (Pregunta) ➡️"):
-                st.session_state.current_idx = None
-                st.session_state.answered = False
-                st.session_state.last_result = None
+    if not st.session_state.answered:
+        sel = st.radio("Selecciona tu respuesta:", opciones, index=None)
+        if st.button("Verificar Respuesta 🛡️"):
+            if sel:
+                st.session_state.answered = True
+                correcta = str(q['Respuesta']).strip().upper()
+                st.session_state.is_correct = sel[0].upper() == correcta
+                st.session_state.history[q['id_p']] = {'score': 1 if st.session_state.is_correct else 0}
                 st.rerun()
-
-    # Gráfico inferior
-    if st.session_state.history:
-        st.divider()
-        fallos = sum(1 for x in st.session_state.history.values() if x['score'] == 0)
-        aciertos = sum(1 for x in st.session_state.history.values() if x['score'] == 1)
-        fig = px.pie(values=[aciertos, fallos], names=['Aciertos', 'Fallos'], 
-                     color_discrete_sequence=['#2ecc71', '#e74c3c'], hole=0.4, title="Rendimiento de la Sesión")
-        st.plotly_chart(fig, use_container_width=True)
+    else:
+        if st.session_state.is_correct: st.success("¡Correcto! Sigue así, doctor.")
+        else: st.error(f"Incorrecto. La respuesta correcta era: {q['Respuesta']}")
+        
+        with st.expander("📚 Ver Retroalimentación Clínica", expanded=True):
+            st.write(q['Retroalimentación'])
+        
+        if st.button("Siguiente Pregunta ➡️"):
+            st.session_state.current_idx = None
+            st.session_state.answered = False
+            st.rerun()
 
 if __name__ == "__main__":
     main()
