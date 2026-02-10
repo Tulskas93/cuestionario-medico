@@ -16,30 +16,34 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CARGA DE DATOS ---
-@st.cache_data(show_spinner="Invocando el conocimiento de la Luna...")
+# --- CARGA DE DATOS (EXCEL .XLSX) ---
+@st.cache_data(show_spinner="Abriendo los pergaminos de la Luna...")
 def cargar_datos():
-    # URL RAW exacta de tu repositorio
-    url = "https://raw.githubusercontent.com/Tulskas93/cuestionario-medico/main/preguntas_medicina.csv"
+    # URL de tu archivo EXCEL en modo RAW/Download
+    # GitHub no da "raw" de archivos binarios como Excel igual que los CSV, 
+    # por lo que usamos ?raw=true al final de la URL normal
+    url = "https://github.com/Tulskas93/cuestionario-medico/blob/main/preguntas_medicina.xlsx?raw=true"
     try:
-        # Forzamos la lectura con parámetros de seguridad
-        df = pd.read_csv(url, sep=',', encoding='utf-8', on_bad_lines='skip')
+        # Usamos read_excel en lugar de read_csv
+        df = pd.read_excel(url)
+        # Limpiar espacios en los nombres de las columnas
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
+        st.sidebar.error(f"Error técnico: {e}")
         return None
 
 df = cargar_datos()
 
 # --- VALIDACIÓN INICIAL ---
 if df is None or df.empty:
-    st.error("⚠️ Onii-san, no pude leer el CSV. Verifica que el archivo esté en GitHub con el nombre 'preguntas_medicina.csv'")
-    st.info("Si acabas de subir el archivo, espera 30 segundos y dale a 'Rerun' en el menú de arriba.")
+    st.error("⚠️ No pude leer el archivo Excel.")
+    st.write("Verifica que el nombre en tu GitHub sea exactamente: **preguntas_medicina.xlsx**")
     st.stop()
 
 # --- INICIALIZACIÓN DEL ESTADO ---
 if 'preguntas_falladas' not in st.session_state:
-    st.session_state.preguntas_falladas = set() # Usamos set para no repetir índices
+    st.session_state.preguntas_falladas = set()
 if 'indice_actual' not in st.session_state:
     st.session_state.indice_actual = 0
 if 'aciertos' not in st.session_state:
@@ -54,16 +58,14 @@ modo = st.sidebar.radio("Método de estudio:", ["Práctica Libre", "Simulacro Ud
 if st.sidebar.button("✨ Generar / Reiniciar"):
     if modo == "Repetición Espaciada":
         if not st.session_state.preguntas_falladas:
-            st.sidebar.warning("¡Aún no has fallado preguntas, Vampiro!")
+            st.sidebar.warning("¡Aún no hay fallos registrados!")
             st.session_state.lista_preguntas = df.sample(frac=1)
         else:
             indices = list(st.session_state.preguntas_falladas)
             st.session_state.lista_preguntas = df.loc[indices].sample(frac=1)
     elif modo == "Simulacro UdeA":
-        # Simulacro de 20 preguntas aleatorias
         st.session_state.lista_preguntas = df.sample(n=min(20, len(df)))
     else:
-        # Mezclar todo
         st.session_state.lista_preguntas = df.sample(frac=1)
     
     st.session_state.indice_actual = 0
@@ -74,60 +76,44 @@ if st.sidebar.button("✨ Generar / Reiniciar"):
 st.title("🩺 Academia Médica Nocturna")
 
 if st.session_state.lista_preguntas.empty:
-    st.info("Selecciona un modo en el menú lateral y dale a 'Generar' para empezar.")
-    st.image("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJid3R6bmJ6bmJ6bmJ6bmJ6bmJ6bmJ6bmJ6bmJ6bmJ6bmJ6JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKMGpxxcaOXYTTO/giphy.gif", width=300)
+    st.info("Onii-san, selecciona un modo y presiona 'Generar' para comenzar.")
 elif st.session_state.indice_actual < len(st.session_state.lista_preguntas):
     
     pregunta = st.session_state.lista_preguntas.iloc[st.session_state.indice_actual]
     
-    # Progreso visual
     total = len(st.session_state.lista_preguntas)
     actual = st.session_state.indice_actual + 1
     st.progress(actual / total)
     st.write(f"Pregunta **{actual}** de **{total}**")
 
-    # Mostrar Pregunta
     st.subheader(pregunta['Pregunta'])
     
+    # Creamos la lista de opciones (ajusta los nombres si en tu Excel son distintos)
     opciones = [pregunta['Opción A'], pregunta['Opción B'], 
                 pregunta['Opción C'], pregunta['Opción D']]
     
     seleccion = st.radio("Diagnóstico:", opciones, key=f"q_{st.session_state.indice_actual}")
 
     if st.button("Confirmar Respuesta ➡️"):
-        es_correcta = (seleccion == pregunta['Respuesta Correcta'])
+        es_correcta = (str(seleccion).strip() == str(pregunta['Respuesta Correcta']).strip())
         
         if es_correcta:
             st.session_state.aciertos += 1
-            if modo != "Simulacro UdeA": st.success("¡Excelente, Onii-san! ✨")
+            if modo != "Simulacro UdeA": st.success("¡Excelente diagnóstico! ✨")
         else:
-            # Guardar para repetición espaciada usando el índice original del DataFrame
-            idx_original = pregunta.name
-            st.session_state.preguntas_falladas.add(idx_original)
+            st.session_state.preguntas_falladas.add(pregunta.name)
             if modo != "Simulacro UdeA": 
                 st.error(f"Incorrecto. La respuesta era: {pregunta['Respuesta Correcta']}")
         
-        # Pequeña pausa para ver la respuesta si no es simulacro
         if modo != "Simulacro UdeA":
-            time.sleep(1)
+            time.sleep(1.5)
             
         st.session_state.indice_actual += 1
         st.rerun()
-
 else:
-    # --- RESULTADOS FINALES ---
     st.balloons()
     st.header("¡Misión Cumplida! 🦇")
-    final_score = st.session_state.aciertos
-    total_preg = len(st.session_state.lista_preguntas)
-    
-    st.metric("Puntaje Final", f"{final_score}/{total_preg}")
-    
-    if (final_score/total_preg) > 0.8:
-        st.success("¡Nivel de Residente alcanzado! 🎖️")
-    else:
-        st.warning("Hay que seguir digiriendo la poción de conocimiento.")
-        
+    st.metric("Puntaje Final", f"{st.session_state.aciertos}/{len(st.session_state.lista_preguntas)}")
     if st.button("🔄 Volver al Inicio"):
         st.session_state.lista_preguntas = pd.DataFrame()
         st.rerun()
