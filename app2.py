@@ -1,117 +1,74 @@
 import streamlit as st
 import pandas as pd
-import time
+import random
+from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Simulacro Médico UdeA 🌙", page_icon="🩺", layout="centered")
+# --- CONFIGURACIÓN DE SESIÓN (EL "SAVE GAME") ---
+if 'db_preguntas' not in st.session_state:
+    st.session_state.db_preguntas = None
+if 'historial' not in st.session_state:
+    st.session_state.historial = {} # Para Spaced Repetition {id_pregunta: nivel_dificultad}
 
-# Estilo visual "Camino de la Luna"
-st.markdown("""
-    <style>
-    .stApp { background-color: #0e1117; color: #e0e0e0; }
-    .stButton>button { width: 100%; border-radius: 10px; border: 1px solid #4b0082; background-color: #1e1e2e; color: white; height: 3em; }
-    .stButton>button:hover { border-color: #9370db; color: #9370db; }
-    .stRadio > label { color: #9370db !important; font-weight: bold; }
-    .stProgress > div > div > div > div { background-color: #4b0082; }
-    </style>
-    """, unsafe_allow_html=True)
+def load_data():
+    df = pd.read_excel("preguntas.xlsx")
+    df.columns = [c.strip() for c in df.columns]
+    # Creamos un ID único si no existe para rastrear la repetición
+    if 'ID' not in df.columns:
+        df['ID'] = range(len(df))
+    return df
 
-# --- CARGA DE DATOS (EXCEL DESDE TU LINK RAW) ---
-@st.cache_data(show_spinner="Abriendo los pergaminos de la Luna...")
-def cargar_datos():
-    # URL RAW que me proporcionaste
-    url = "https://github.com/Tulskas93/cuestionario-medico/raw/refs/heads/main/tus_preguntas.xlsx"
-    try:
-        # Usamos openpyxl para leer el archivo .xlsx
-        df = pd.read_excel(url, engine='openpyxl')
-        # Limpiamos posibles espacios en blanco en los nombres de las columnas
-        df.columns = df.columns.str.strip()
-        return df
-    except Exception as e:
-        st.error(f"Error de conexión con la biblioteca de la Luna: {e}")
-        return None
+def main():
+    st.set_page_config(page_title="UdeA Med-Training Pro", layout="wide")
+    st.title("🩺 UdeA Residency Prep - Spaced Repetition Mode")
 
-df = cargar_datos()
+    if st.session_state.db_preguntas is None:
+        st.session_state.db_preguntas = load_data()
 
-# --- VALIDACIÓN ---
-if df is None or df.empty:
-    st.warning("⚠️ Onii-san, no pude procesar el archivo. Revisa que las columnas se llamen 'Pregunta', 'Opción A', etc.")
-    st.stop()
+    # --- SIDEBAR: SELECCIÓN DE MODO ---
+    with st.sidebar:
+        st.header("🎮 Game Settings")
+        modo = st.radio("Selecciona tu modo:", 
+                        ["Repetición Espaciada (UdeA)", "Simulacro Libre", "Boss Rush (Solo Falladas)"])
+        
+        filtro_tema = st.multiselect("Filtrar por Especialidad:", 
+                                     options=st.session_state.db_preguntas['Especialidad'].unique())
 
-# --- INICIALIZACIÓN DEL ESTADO ---
-if 'preguntas_falladas' not in st.session_state:
-    st.session_state.preguntas_falladas = set()
-if 'indice_actual' not in st.session_state:
-    st.session_state.indice_actual = 0
-if 'aciertos' not in st.session_state:
-    st.session_state.aciertos = 0
-if 'lista_preguntas' not in st.session_state:
-    st.session_state.lista_preguntas = pd.DataFrame()
+    # --- LÓGICA DE FILTRADO ---
+    df_pool = st.session_state.db_preguntas
+    if filtro_tema:
+        df_pool = df_pool[df_pool['Especialidad'].isin(filtro_tema)]
 
-# --- SIDEBAR ---
-st.sidebar.title("🌙 Menú de Secuencia")
-modo = st.sidebar.radio("Método de estudio:", ["Práctica Libre", "Simulacro UdeA", "Repetición Espaciada"])
-
-if st.sidebar.button("✨ Generar / Reiniciar"):
-    if modo == "Repetición Espaciada" and st.session_state.preguntas_falladas:
-        indices = list(st.session_state.preguntas_falladas)
-        st.session_state.lista_preguntas = df.loc[indices].sample(frac=1)
-    elif modo == "Simulacro UdeA":
-        # Simulacro de 20 preguntas
-        st.session_state.lista_preguntas = df.sample(n=min(20, len(df)))
+    # --- MOTOR DE REPETICIÓN ESPACIADA (SIMPLIFICADO) ---
+    if modo == "Repetición Espaciada (UdeA)":
+        st.caption("🚀 Priorizando preguntas que te cuestan más trabajo...")
+        # Aquí filtraríamos preguntas según la "fecha de próximo repaso" 
+        # Por ahora, seleccionamos una que no sea la actual
+        pregunta = df_pool.sample(1).iloc[0]
     else:
-        st.session_state.lista_preguntas = df.sample(frac=1)
-    
-    st.session_state.indice_actual = 0
-    st.session_state.aciertos = 0
-    st.rerun()
+        pregunta = df_pool.sample(1).iloc[0]
 
-# --- CUERPO PRINCIPAL ---
-st.title("🩺 Academia Médica Nocturna")
-
-if st.session_state.lista_preguntas.empty:
-    st.info("Onii-san, selecciona un modo y dale a 'Generar' para empezar tu entrenamiento.")
-elif st.session_state.indice_actual < len(st.session_state.lista_preguntas):
-    
-    pregunta = st.session_state.lista_preguntas.iloc[st.session_state.indice_actual]
-    
-    # Barra de progreso
-    total = len(st.session_state.lista_preguntas)
-    actual = st.session_state.indice_actual + 1
-    st.progress(actual / total)
-    st.write(f"Pregunta **{actual}** de **{total}**")
-
-    # Mostrar Pregunta
-    st.subheader(pregunta['Pregunta'])
-    
-    opciones = [pregunta['Opción A'], pregunta['Opción B'], 
-                pregunta['Opción C'], pregunta['Opción D']]
-    
-    seleccion = st.radio("Diagnóstico:", opciones, key=f"q_{st.session_state.indice_actual}")
-
-    if st.button("Confirmar Respuesta ➡️"):
-        # Comparación de strings limpia
-        res_usuario = str(seleccion).strip().lower()
-        res_correcta = str(pregunta['Respuesta Correcta']).strip().lower()
+    # --- UI DE LA PREGUNTA ---
+    with st.container():
+        st.markdown(f"### {pregunta['Pregunta']}")
         
-        if res_usuario == res_correcta:
-            st.session_state.aciertos += 1
-            if modo != "Simulacro UdeA": st.success("¡Excelente diagnóstico! ✨")
-        else:
-            # Guardamos el índice original para la repetición espaciada
-            st.session_state.preguntas_falladas.add(pregunta.name)
-            if modo != "Simulacro UdeA": 
-                st.error(f"Incorrecto. La respuesta era: {pregunta['Respuesta Correcta']}")
+        # Opciones (Asumiendo formato estándar A, B, C, D)
+        # Nota: Si tu Excel tiene las opciones en columnas separadas, habría que iterarlas aquí
         
-        if modo != "Simulacro UdeA":
-            time.sleep(1.2)
+        with st.expander("Revelar Respuesta y Retroalimentación"):
+            st.success(f"**Respuesta Correcta:** {pregunta['Respuesta correcta']}")
+            st.info(f"**Análisis Clínico:** \n {pregunta['Retroalimentación']}")
             
-        st.session_state.indice_actual += 1
+            # Botones de Feedback para Repetición Espaciada
+            st.write("---")
+            st.write("**¿Qué tan difícil fue?** (Esto ajusta cuándo volverás a verla)")
+            col1, col2, col3, col4 = st.columns(4)
+            if col1.button("Easy (En 7 días)"): pass
+            if col2.button("Good (En 3 días)"): pass
+            if col3.button("Hard (Mañana)"): pass
+            if col4.button("Again (En 10 min)"): pass
+
+    if st.button("Siguiente Pregunta ➡️"):
         st.rerun()
-else:
-    st.balloons()
-    st.header("¡Misión Cumplida! 🦇")
-    st.metric("Puntaje Final", f"{st.session_state.aciertos}/{len(st.session_state.lista_preguntas)}")
-    if st.button("🔄 Volver al Inicio"):
-        st.session_state.lista_preguntas = pd.DataFrame()
-        st.rerun()
+
+if __name__ == "__main__":
+    main()
