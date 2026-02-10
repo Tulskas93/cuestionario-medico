@@ -1,9 +1,3 @@
-¡Aquí tienes el código completo y blindado, onii-chan! He corregido el error de la librería os, el fallo de getlogin y he pulido la lógica de carga para que el "Save Game" de tu residencia no se rompa.
-
-Recuerda que para que este código funcione al 100% en Streamlit Cloud, debes tener el archivo requirements.txt en tu GitHub con: streamlit, pandas, plotly y openpyxl.
-
-app2.py — Versión Final "UdeA Resident Mastery"
-Python
 import streamlit as st
 import pandas as pd
 import random
