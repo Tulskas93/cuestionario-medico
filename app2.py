@@ -3,42 +3,35 @@ import pandas as pd
 import time
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Simulacro Médico UdeA 🌙", page_icon="🩺", layout="centered")
+st.set_page_config(page_title="Simulacro Médico UdeA 🌙", page_icon="🩺")
 
 # Estilo visual "Camino de la Luna"
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: #e0e0e0; }
-    .stButton>button { width: 100%; border-radius: 10px; border: 1px solid #4b0082; background-color: #1e1e2e; color: white; height: 3em; }
-    .stButton>button:hover { border-color: #9370db; color: #9370db; }
+    .stButton>button { width: 100%; border-radius: 10px; border: 1px solid #4b0082; background-color: #1e1e2e; color: white; }
     .stRadio > label { color: #9370db !important; font-weight: bold; }
-    .stProgress > div > div > div > div { background-color: #4b0082; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CARGA DE DATOS (EXCEL .XLSX) ---
+# --- CARGA DE DATOS (EXCEL) ---
 @st.cache_data(show_spinner="Abriendo los pergaminos de la Luna...")
 def cargar_datos():
-    # URL de tu archivo EXCEL en modo RAW/Download
-    # GitHub no da "raw" de archivos binarios como Excel igual que los CSV, 
-    # por lo que usamos ?raw=true al final de la URL normal
+    # URL para descargar el Excel desde GitHub
     url = "https://github.com/Tulskas93/cuestionario-medico/blob/main/preguntas_medicina.xlsx?raw=true"
     try:
-        # Usamos read_excel en lugar de read_csv
-        df = pd.read_excel(url)
-        # Limpiar espacios en los nombres de las columnas
+        # Importante: engine='openpyxl' es lo que lee archivos .xlsx
+        df = pd.read_excel(url, engine='openpyxl')
         df.columns = df.columns.str.strip()
         return df
     except Exception as e:
-        st.sidebar.error(f"Error técnico: {e}")
+        st.error(f"Error al leer el Excel: {e}")
         return None
 
 df = cargar_datos()
 
-# --- VALIDACIÓN INICIAL ---
 if df is None or df.empty:
-    st.error("⚠️ No pude leer el archivo Excel.")
-    st.write("Verifica que el nombre en tu GitHub sea exactamente: **preguntas_medicina.xlsx**")
+    st.warning("⚠️ Onii-san, verifica que el archivo se llame 'preguntas_medicina.xlsx' en tu GitHub.")
     st.stop()
 
 # --- INICIALIZACIÓN DEL ESTADO ---
@@ -56,13 +49,9 @@ st.sidebar.title("🌙 Menú de Secuencia")
 modo = st.sidebar.radio("Método de estudio:", ["Práctica Libre", "Simulacro UdeA", "Repetición Espaciada"])
 
 if st.sidebar.button("✨ Generar / Reiniciar"):
-    if modo == "Repetición Espaciada":
-        if not st.session_state.preguntas_falladas:
-            st.sidebar.warning("¡Aún no hay fallos registrados!")
-            st.session_state.lista_preguntas = df.sample(frac=1)
-        else:
-            indices = list(st.session_state.preguntas_falladas)
-            st.session_state.lista_preguntas = df.loc[indices].sample(frac=1)
+    if modo == "Repetición Espaciada" and st.session_state.preguntas_falladas:
+        indices = list(st.session_state.preguntas_falladas)
+        st.session_state.lista_preguntas = df.loc[indices].sample(frac=1)
     elif modo == "Simulacro UdeA":
         st.session_state.lista_preguntas = df.sample(n=min(20, len(df)))
     else:
@@ -76,44 +65,31 @@ if st.sidebar.button("✨ Generar / Reiniciar"):
 st.title("🩺 Academia Médica Nocturna")
 
 if st.session_state.lista_preguntas.empty:
-    st.info("Onii-san, selecciona un modo y presiona 'Generar' para comenzar.")
+    st.info("Onii-san, selecciona un modo y dale a 'Generar' para empezar.")
 elif st.session_state.indice_actual < len(st.session_state.lista_preguntas):
-    
     pregunta = st.session_state.lista_preguntas.iloc[st.session_state.indice_actual]
     
-    total = len(st.session_state.lista_preguntas)
-    actual = st.session_state.indice_actual + 1
-    st.progress(actual / total)
-    st.write(f"Pregunta **{actual}** de **{total}**")
-
+    st.write(f"Pregunta **{st.session_state.indice_actual + 1}** de **{len(st.session_state.lista_preguntas)}**")
     st.subheader(pregunta['Pregunta'])
     
-    # Creamos la lista de opciones (ajusta los nombres si en tu Excel son distintos)
-    opciones = [pregunta['Opción A'], pregunta['Opción B'], 
-                pregunta['Opción C'], pregunta['Opción D']]
-    
+    opciones = [pregunta['Opción A'], pregunta['Opción B'], pregunta['Opción C'], pregunta['Opción D']]
     seleccion = st.radio("Diagnóstico:", opciones, key=f"q_{st.session_state.indice_actual}")
 
     if st.button("Confirmar Respuesta ➡️"):
-        es_correcta = (str(seleccion).strip() == str(pregunta['Respuesta Correcta']).strip())
-        
-        if es_correcta:
+        # Comparación limpia de strings
+        if str(seleccion).strip() == str(pregunta['Respuesta Correcta']).strip():
             st.session_state.aciertos += 1
-            if modo != "Simulacro UdeA": st.success("¡Excelente diagnóstico! ✨")
+            if modo != "Simulacro UdeA": st.success("¡Correcto! ✨")
         else:
             st.session_state.preguntas_falladas.add(pregunta.name)
-            if modo != "Simulacro UdeA": 
-                st.error(f"Incorrecto. La respuesta era: {pregunta['Respuesta Correcta']}")
+            if modo != "Simulacro UdeA": st.error(f"Fallo. Era: {pregunta['Respuesta Correcta']}")
         
-        if modo != "Simulacro UdeA":
-            time.sleep(1.5)
-            
+        time.sleep(1)
         st.session_state.indice_actual += 1
         st.rerun()
 else:
     st.balloons()
-    st.header("¡Misión Cumplida! 🦇")
     st.metric("Puntaje Final", f"{st.session_state.aciertos}/{len(st.session_state.lista_preguntas)}")
-    if st.button("🔄 Volver al Inicio"):
+    if st.button("Nueva Ronda"):
         st.session_state.lista_preguntas = pd.DataFrame()
         st.rerun()
