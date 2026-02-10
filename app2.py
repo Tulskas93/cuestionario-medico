@@ -1,34 +1,57 @@
 import streamlit as st
 import pandas as pd
 import random
-import plotly.express as px
 import os
 import re
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="UdeA Mastery Pro", page_icon="🏥", layout="wide")
 
-# --- CSS: INTERFAZ LIMPIA Y LEGIBLE ---
+# --- CSS: FUENTE GRANDE Y LEGIBILIDAD MÁXIMA ---
 st.markdown("""
     <style>
-    .stApp { background-color: #f0f2f6; }
+    .stApp { background-color: #f4f7f6; }
+    
+    /* Tarjeta Principal */
     .main-card {
         background-color: #ffffff;
-        padding: 30px;
-        border-radius: 15px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        padding: 45px;
+        border-radius: 25px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
         color: #1a1a1a;
-        margin-bottom: 25px;
-        border-left: 10px solid #1f77b4;
+        margin-bottom: 30px;
+        border-left: 12px solid #2e7bcf;
     }
+    
+    /* Texto de la Pregunta - TAMAÑO EXTRA */
     .question-text {
-        font-size: 1.4rem;
-        font-weight: 600;
-        color: #2c3e50;
+        font-size: 1.8rem !important;
+        font-weight: 700;
+        color: #1a1a1a;
+        line-height: 1.5;
+        margin-bottom: 20px;
     }
-    .stRadio > label { font-size: 1.1rem !important; color: #34495e !important; font-weight: 500; }
-    /* Fix para asegurar que el texto sea negro y no herede gris oscuro */
-    p, span, label { color: #1a1a1a !important; }
+    
+    /* Opciones de Radio - TAMAÑO EXTRA */
+    .stRadio > label { 
+        font-size: 1.4rem !important; 
+        color: #2c3e50 !important; 
+        font-weight: 500;
+        padding: 10px 0px;
+    }
+    
+    /* Estilo para los textos generales */
+    p, span, label, .stMarkdown {
+        font-size: 1.3rem !important;
+        color: #1a1a1a !important;
+    }
+    
+    /* Botones más grandes */
+    .stButton>button {
+        font-size: 1.4rem !important;
+        height: 3.5em !important;
+        border-radius: 15px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -42,22 +65,21 @@ def load_data():
         df['id_p'] = range(len(df))
         return df
     except Exception as e:
-        st.error(f"Error al cargar datos del repositorio: {e}")
+        st.error(f"Error al cargar datos: {e}")
         return None
 
 def parse_question(text):
     text = str(text)
-    # Detecta saltos de línea o espacios que preceden a A), B), C)...
+    # Parser para separar enunciado de opciones A, B, C, D
     parts = re.split(r'\s*\n?\s*(?=[A-E][\).])', text)
     enunciado = parts[0]
     opciones = [p.strip() for p in parts[1:] if p.strip()]
     return enunciado, opciones
 
-# --- ESTADO DE LA SESIÓN (PERSISTENCIA) ---
+# --- ESTADO DE LA SESIÓN ---
 if 'history' not in st.session_state: st.session_state.history = {}
 if 'current_idx' not in st.session_state: st.session_state.current_idx = None
 if 'answered' not in st.session_state: st.session_state.answered = False
-if 'exam_mode' not in st.session_state: st.session_state.exam_mode = False
 if 'exam_questions' not in st.session_state: st.session_state.exam_questions = []
 
 def main():
@@ -66,57 +88,74 @@ def main():
 
     # --- SIDEBAR ---
     with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b5/Escudo_UdeA.svg", width=120)
-        st.title("Med-Trainer UdeA")
-        modo = st.selectbox("Elegir Modo:", ["Repetición Espaciada", "Random", "Examen UdeA (Simulacro)"])
+        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b5/Escudo_UdeA.svg", width=140)
+        st.title("Med-Trainer v3.5")
+        modo = st.selectbox("Modo de Estudio:", ["Repetición Espaciada", "Random", "Examen UdeA (70 Preguntas)"])
         
         st.divider()
-        if st.button("Resetear Progreso"):
+        if st.button("Limpiar Progreso"):
             st.session_state.clear()
             st.rerun()
 
-    # --- MODO EXAMEN UdeA ---
-    if modo == "Examen UdeA (Simulacro)":
-        st.header("⏱️ Simulacro Real UdeA")
+    # --- MODO EXAMEN UdeA (70 PREGUNTAS) ---
+    if modo == "Examen UdeA (70 Preguntas)":
+        st.header("⏱️ Simulacro Completo: 70 Preguntas")
+        
         if not st.session_state.exam_questions:
-            if st.button("Comenzar Examen (10 preguntas)"):
-                st.session_state.exam_questions = df.sample(10).to_dict('records')
+            if st.button("🚀 INICIAR SIMULACRO"):
+                # Si el excel tiene menos de 70, toma todas las disponibles
+                n_preguntas = min(len(df), 70)
+                st.session_state.exam_questions = df.sample(n_preguntas).to_dict('records')
                 st.session_state.exam_idx = 0
                 st.session_state.exam_answers = []
                 st.rerun()
             return
 
         idx = st.session_state.exam_idx
-        if idx < len(st.session_state.exam_questions):
+        num_total = len(st.session_state.exam_questions)
+        
+        if idx < num_total:
             q = st.session_state.exam_questions[idx]
             enunciado, opciones = parse_question(q['Pregunta'])
             
-            st.progress((idx) / 10)
+            st.progress((idx) / num_total)
+            st.subheader(f"Pregunta {idx + 1} de {num_total}")
+            
             st.markdown(f'<div class="main-card"><p class="question-text">{enunciado}</p></div>', unsafe_allow_html=True)
             
-            sel = st.radio(f"Pregunta {idx+1} de 10:", opciones, key=f"ex_{idx}", index=None)
+            sel = st.radio("Elija su respuesta:", opciones, key=f"ex70_{idx}", index=None)
             
             if st.button("Siguiente ➡️"):
                 if sel:
-                    st.session_state.exam_answers.append({'sel': sel[0].upper(), 'correcta': str(q['Respuesta']).strip().upper()})
+                    st.session_state.exam_answers.append({
+                        'sel': sel[0].upper(), 
+                        'correcta': str(q['Respuesta']).strip().upper()
+                    })
                     st.session_state.exam_idx += 1
                     st.rerun()
-                else: st.warning("Selecciona una opción")
+                else: st.warning("Por favor seleccione una opción para continuar.")
         else:
-            # Resultados del Examen
+            # RESULTADOS FINALES
             aciertos = sum(1 for a in st.session_state.exam_answers if a['sel'] == a['correcta'])
+            porcentaje = (aciertos / num_total) * 100
+            
             st.balloons()
-            st.markdown(f'<div class="main-card"><h2>Resultado: {aciertos}/10</h2></div>', unsafe_allow_html=True)
-            if st.button("Finalizar y volver"):
+            st.markdown(f'<div class="main-card" style="text-align:center;">'
+                        f'<h1>Resultado Final</h1>'
+                        f'<h2 style="color:#2e7bcf;">{aciertos} / {num_total}</h2>'
+                        f'<h3>Porcentaje: {porcentaje:.1f}%</h3>'
+                        f'</div>', unsafe_allow_html=True)
+            
+            if st.button("Finalizar y Salir"):
                 st.session_state.exam_questions = []
                 st.rerun()
         return
 
-    # --- MODOS DE REPASO (SR / RANDOM) ---
+    # --- MODO REPASO DIARIO ---
     if st.session_state.current_idx is None:
         if modo == "Repetición Espaciada" and st.session_state.history:
             falladas = [id for id, data in st.session_state.history.items() if data['score'] == 0]
-            if falladas and random.random() < 0.5:
+            if falladas and random.random() < 0.6:
                 st.session_state.current_idx = random.choice(falladas)
             else: st.session_state.current_idx = random.randint(0, len(df)-1)
         else: st.session_state.current_idx = random.randint(0, len(df)-1)
@@ -124,16 +163,11 @@ def main():
     q = df.iloc[st.session_state.current_idx]
     enunciado, opciones = parse_question(q['Pregunta'])
 
-    # Métricas
-    c1, c2 = st.columns(2)
-    c1.metric("Preguntas en Memoria", len(st.session_state.history))
-    c2.metric("Puntos XP", len(st.session_state.history) * 10)
-
     st.markdown(f'<div class="main-card"><p class="question-text">{enunciado}</p></div>', unsafe_allow_html=True)
 
     if not st.session_state.answered:
-        sel = st.radio("Selecciona tu respuesta:", opciones, index=None)
-        if st.button("Verificar Respuesta 🛡️"):
+        sel = st.radio("Opciones disponibles:", opciones, index=None)
+        if st.button("Confirmar Respuesta 🛡️"):
             if sel:
                 st.session_state.answered = True
                 correcta = str(q['Respuesta']).strip().upper()
@@ -141,11 +175,11 @@ def main():
                 st.session_state.history[q['id_p']] = {'score': 1 if st.session_state.is_correct else 0}
                 st.rerun()
     else:
-        if st.session_state.is_correct: st.success("¡Correcto! Sigue así, doctor.")
-        else: st.error(f"Incorrecto. La respuesta correcta era: {q['Respuesta']}")
+        if st.session_state.is_correct: st.success("### ✅ ¡CORRECTO!")
+        else: st.error(f"### ❌ INCORRECTO. La respuesta es: {q['Respuesta']}")
         
-        with st.expander("📚 Ver Retroalimentación Clínica", expanded=True):
-            st.write(q['Retroalimentación'])
+        with st.expander("📖 VER RETROALIMENTACIÓN", expanded=True):
+            st.markdown(f"#### {q['Retroalimentación']}")
         
         if st.button("Siguiente Pregunta ➡️"):
             st.session_state.current_idx = None
