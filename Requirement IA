@@ -1,0 +1,7 @@
+ia-streamlit/
+│
+├── app.py
+├── model.py
+├── requirements.txt
+├── README.md
+└── .gitignore
